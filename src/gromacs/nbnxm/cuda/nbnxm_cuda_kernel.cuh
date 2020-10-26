@@ -45,6 +45,8 @@
  *  \ingroup module_nbnxm
  */
 
+#include <iostream> // anton: debug
+
 #include "gromacs/gpu_utils/cuda_arch_utils.cuh"
 #include "gromacs/gpu_utils/cuda_kernel_utils.cuh"
 #include "gromacs/math/utilities.h"
@@ -178,10 +180,10 @@ __global__ void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_cuda)
     const float2       *lj_comb     = atdat.lj_comb;
     float2              ljcp_i, ljcp_j;
 #endif
-    const float4       *xq          = atdat.xq;
-    float3             *f           = atdat.f;
-    const float3       *shift_vec   = atdat.shift_vec;
-    float               rcoulomb_sq = nbparam.rcoulomb_sq;
+    const float4           *xq          = atdat.xq;
+    ForceBufferElementType *f           = atdat.f;
+    const float3           *shift_vec   = atdat.shift_vec;
+    float                   rcoulomb_sq = nbparam.rcoulomb_sq;
 #ifdef VDW_CUTOFF_CHECK
     float               rvdw_sq     = nbparam.rvdw_sq;
     float               vdw_in_range;
@@ -246,11 +248,11 @@ __global__ void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_cuda)
 #if defined CALC_ENERGIES || defined LJ_POT_SWITCH
     float        E_lj_p;
 #endif
-    unsigned int wexcl, imask, mask_ji;
-    float4       xqbuf;
-    float3       xi, xj, rv, f_ij, fcj_buf;
-    float3       fci_buf[c_numClPerSupercl]; /* i force buffer */
-    nbnxn_sci_t  nb_sci;
+    unsigned int           wexcl, imask, mask_ji;
+    float4                 xqbuf;
+    float3                 xi, xj, rv, f_ij;
+    ForceBufferElementType fci_buf[c_numClPerSupercl], fcj_buf; /* i force buffer */ // anton
+    nbnxn_sci_t            nb_sci;
 
     /*! i-cluster interaction mask for a super-cluster with all c_numClPerSupercl=8 bits set */
     const unsigned superClInteractionMask = ((1U << c_numClPerSupercl) - 1U);
@@ -313,7 +315,7 @@ __global__ void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_cuda)
 
     for (i = 0; i < c_numClPerSupercl; i++)
     {
-        fci_buf[i] = make_float3(0.0f);
+        fci_buf[i] = make_float4(0.0f);
     }
 
 #ifdef LJ_EWALD
@@ -415,7 +417,7 @@ __global__ void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_cuda)
                     ljcp_j  = lj_comb[aj];
 #endif
 
-                    fcj_buf = make_float3(0.0f);
+                    fcj_buf = make_float4(0.0f);
 
 #if !defined PRUNE_NBL
 #pragma unroll 8
@@ -590,7 +592,7 @@ __global__ void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_cuda)
                                 fcj_buf -= f_ij;
 
                                 /* accumulate i forces in registers */
-                                fci_buf[i] += f_ij;
+                                fci_buf[i] += f_ij; // anton: change from f_ij to f_i
                             }
                         }
 

@@ -655,6 +655,7 @@ static void alternatePmeNbGpuWaitReduce(nonbonded_verlet_t                  *nbv
                                         gmx::ArrayRefWithPadding<gmx::RVec> *force,
                                         gmx::ForceWithVirial                *forceWithVirial,
                                         rvec                                 fshift[],
+                                        gmx::ArrayRef<real>                  electrostaticPotential,
                                         gmx_enerdata_t                      *enerd,
                                         int                                  flags,
                                         int                                  pmeFlags,
@@ -696,7 +697,9 @@ static void alternatePmeNbGpuWaitReduce(nonbonded_verlet_t                  *nbv
                 wallcycle_stop(wcycle, ewcWAIT_GPU_NB_L);
 
                 nbv->atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality::Local,
-                                              as_rvec_array(force->unpaddedArrayRef().data()), wcycle);
+                                              as_rvec_array(force->unpaddedArrayRef().data()),
+                                              electrostaticPotential,
+                                              wcycle);
             }
         }
     }
@@ -1275,15 +1278,14 @@ void do_force(FILE                                     *fplog,
          * communication with calculation with domain decomposition.
          */
         wallcycle_stop(wcycle, ewcFORCE);
+                                                                
+        nbv->atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality::All, 
+                                      forceOut.f,
+                                      fr->electrostaticPotential, // For PH GPU case this is now reduced together with F
+                                      wcycle);
 
-        nbv->atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality::All, forceOut.f, wcycle);
-
-        if (fr->constantPH)
+        if (fr->constantPH && !nbv->useGpu())
         {
-            if (nbv->useGpu())
-            {
-                gmx_fatal(FARGS, "Electrostatic potential calculation for constont pH is currently only implented in the CPU kernels, not on the GPU.");
-            }
             nbv->addElectrostaticPotential(Nbnxm::AtomLocality::All, fr->electrostaticPotential, wcycle);
         }
 
@@ -1348,7 +1350,9 @@ void do_force(FILE                                     *fplog,
             }
 
             nbv->atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality::NonLocal,
-                                          forceOut.f, wcycle);
+                                          forceOut.f, 
+                                          fr->electrostaticPotential,
+                                          wcycle);
         }
     }
 
@@ -1372,7 +1376,8 @@ void do_force(FILE                                     *fplog,
     bool alternateGpuWait = (!c_disableAlternatingWait && useGpuPme && bUseGPU && !DOMAINDECOMP(cr));
     if (alternateGpuWait)
     {
-        alternatePmeNbGpuWaitReduce(fr->nbv.get(), fr->pmedata, &force, &forceOut.forceWithVirial, fr->fshift, enerd,
+        alternatePmeNbGpuWaitReduce(fr->nbv.get(), fr->pmedata, &force, &forceOut.forceWithVirial, fr->fshift, 
+                                    fr->electrostaticPotential, enerd,
                                     flags, pmeFlags, ppForceWorkload->haveGpuBondedWork, wcycle);
     }
 
@@ -1467,7 +1472,9 @@ void do_force(FILE                                     *fplog,
     if (bUseOrEmulGPU && !alternateGpuWait)
     {
         nbv->atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality::Local,
-                                      forceOut.f, wcycle);
+                                      forceOut.f, 
+                                      fr->electrostaticPotential,
+                                      wcycle);
     }
     if (DOMAINDECOMP(cr))
     {

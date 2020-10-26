@@ -33,6 +33,8 @@
  * the research papers on the package. Check out http://www.gromacs.org.
  */
 
+#include <iostream> // anton: debug
+
 #include "gmxpre.h"
 
 #include "atomdata.h"
@@ -664,7 +666,7 @@ void nbnxn_atomdata_init(const gmx::MDLogger &mdlog,
     else
     {
         nbat->XFormat = nbatXYZQ;
-        nbat->FFormat = nbatXYZ;
+        nbat->FFormat = nbatXYZQ; // anton: we change this because we can make use of old code
     }
 
     nbat->shift_vec.resize(SHIFTS);
@@ -1174,7 +1176,8 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const Nbnxm::GridSet          &gridSet,
                                     const nbnxn_atomdata_output_t &out,
                                     const int                      a0,
                                     const int                      a1,
-                                    rvec *                         f)
+                                    rvec *                         f,
+                                    gmx::ArrayRef<real>            ElectrostaticPotential)
 {
     gmx::ArrayRef<const int>  cell = gridSet.cells();
     // Note: Using ArrayRef instead makes this code 25% slower with gcc 7.3
@@ -1192,6 +1195,7 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const Nbnxm::GridSet          &gridSet,
                 f[a][XX] += fnb[i];
                 f[a][YY] += fnb[i + 1];
                 f[a][ZZ] += fnb[i + 2];
+                f[a][3] += ElectrostaticPotential[i]; // anton: added this for reducing?
             }
             break;
         case nbatX4:
@@ -1483,7 +1487,8 @@ static void getAtomStartAndNumber(const Nbnxm::AtomLocality  locality,
 void reduceForces(nbnxn_atomdata_t          *nbat,
                   const Nbnxm::AtomLocality  locality,
                   const Nbnxm::GridSet      &gridSet,
-                  rvec                      *f)
+                  rvec                      *f,
+                  gmx::ArrayRef<real>        electrostaticPotential)
 {
     int a0;
     int na;
@@ -1525,7 +1530,8 @@ void reduceForces(nbnxn_atomdata_t          *nbat,
                                                 nbat->out[0],
                                                 a0 + ((th + 0)*na)/nth,
                                                 a0 + ((th + 1)*na)/nth,
-                                                f);
+                                                f,
+                                                electrostaticPotential); // in deze functie bij element 3 optellen
         }
         GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
     }

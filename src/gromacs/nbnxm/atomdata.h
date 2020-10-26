@@ -324,7 +324,8 @@ void nbnxn_atomdata_copy_x_to_nbat_x(const Nbnxm::GridSet &gridSet,
 void reduceForces(nbnxn_atomdata_t     *nbat,
                   Nbnxm::AtomLocality   locality,
                   const Nbnxm::GridSet &gridSet,
-                  rvec                 *f);
+                  rvec                 *f,
+                  gmx::ArrayRef<real>   electrostaticPotential);
 
 /* Add the fshift force stored in nbat to fshift */
 void nbnxn_atomdata_add_nbat_fshift_to_fshift(const nbnxn_atomdata_t *nbat,

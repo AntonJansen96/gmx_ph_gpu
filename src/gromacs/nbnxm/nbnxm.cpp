@@ -162,12 +162,13 @@ gmx::ArrayRef<const int> nonbonded_verlet_t::getGridIndices() const
 void
 nonbonded_verlet_t::atomdata_add_nbat_f_to_f(const Nbnxm::AtomLocality  locality,
                                              rvec                      *f,
+                                             gmx::ArrayRef<real>        electrostaticPotential,
                                              gmx_wallcycle             *wcycle)
 {
     wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
     wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
 
-    reduceForces(nbat.get(), locality, pairSearch_->gridSet(), f);
+    reduceForces(nbat.get(), locality, pairSearch_->gridSet(), f, electrostaticPotential);
 
     wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
     wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);

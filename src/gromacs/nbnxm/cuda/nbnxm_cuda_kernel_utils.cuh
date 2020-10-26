@@ -509,8 +509,41 @@ void reduce_force_j_generic(float *f_buf, float3 *fout,
 /*! Final j-force reduction; this implementation only with power of two
  *  array sizes.
  */
+// anton: changed f and *fout types from float3 to ForceBufferElementType
+// static __forceinline__ __device__
+// void reduce_force_j_warp_shfl(ForceBufferElementType f,
+//                               ForceBufferElementType *fout,
+//                               int tidxi, int aidx,
+//                               const unsigned int activemask)
+// {
+//     f.x += gmx_shfl_down_sync(activemask, f.x, 1);
+//     f.y += gmx_shfl_up_sync  (activemask, f.y, 1);
+//     f.z += gmx_shfl_down_sync(activemask, f.z, 1);
+
+//     if (tidxi & 1)
+//     {
+//         f.x = f.y;
+//     }
+
+//     f.x += gmx_shfl_down_sync(activemask, f.x, 2);
+//     f.z += gmx_shfl_up_sync  (activemask, f.z, 2);
+
+//     if (tidxi & 2)
+//     {
+//         f.x = f.z;
+//     }
+
+//     f.x += gmx_shfl_down_sync(activemask, f.x, 4);
+
+//     if (tidxi < 3)
+//     {
+//         atomicAdd((&fout[aidx].x) + tidxi, f.x);
+//     }
+// }
+
 static __forceinline__ __device__
-void reduce_force_j_warp_shfl(float3 f, float3 *fout,
+void reduce_force_j_warp_shfl(float3 f,
+                              float3 *fout,
                               int tidxi, int aidx,
                               const unsigned int activemask)
 {
@@ -534,6 +567,39 @@ void reduce_force_j_warp_shfl(float3 f, float3 *fout,
     f.x += gmx_shfl_down_sync(activemask, f.x, 4);
 
     if (tidxi < 3)
+    {
+        atomicAdd((&fout[aidx].x) + tidxi, f.x);
+    }
+}
+
+static __forceinline__ __device__
+void reduce_force_j_warp_shfl(float4 f,
+                              float4 *fout,
+                              int tidxi, int aidx,
+                              const unsigned int activemask)
+{
+    f.x += gmx_shfl_down_sync(activemask, f.x, 1);
+    f.y += gmx_shfl_up_sync  (activemask, f.y, 1);
+    f.z += gmx_shfl_down_sync(activemask, f.z, 1);
+    f.y += gmx_shfl_up_sync  (activemask, f.w, 1);
+
+    if (tidxi & 1)
+    {
+        f.x = f.y;
+        f.z = f.w;
+    }
+
+    f.x += gmx_shfl_down_sync(activemask, f.x, 2);
+    f.z += gmx_shfl_up_sync  (activemask, f.z, 2);
+
+    if (tidxi & 2)
+    {
+        f.x = f.z;
+    }
+
+    f.x += gmx_shfl_down_sync(activemask, f.x, 4);
+
+    if (tidxi < 4)
     {
         atomicAdd((&fout[aidx].x) + tidxi, f.x);
     }
@@ -634,8 +700,10 @@ void reduce_force_i(float *f_buf, float3 *f,
 /*! Final i-force reduction; this implementation works only with power of two
  *  array sizes.
  */
+// anton: changed fin and *fout types from float3 to ForceBufferElementType
 static __forceinline__ __device__
-void reduce_force_i_warp_shfl(float3 fin, float3 *fout,
+void reduce_force_i_warp_shfl(ForceBufferElementType fin,
+                              ForceBufferElementType *fout,
                               float *fshift_buf, bool bCalcFshift,
                               int tidxj, int aidx,
                               const unsigned int activemask)

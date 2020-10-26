@@ -116,6 +116,13 @@ typedef struct cu_nbparam   cu_nbparam_t;
 typedef struct nb_staging   nb_staging_t;
 /*! \endcond */
 
+#define PH_ON_GPU // anton: where do we something like this
+
+#if defined(PH_ON_GPU) // anton
+    typedef float4 ForceBufferElementType;
+#else
+    typedef float3 ForceBufferElementType;
+#endif
 
 /** \internal
  * \brief Staging area for temporary data downloaded from the GPU.
@@ -140,7 +147,7 @@ struct cu_atomdata
     int      nalloc;            /**< allocation size for the atom data (xq, f)    */
 
     float4  *xq;                /**< atom coordinates + charges, size natoms      */
-    float3  *f;                 /**< force output array, size natoms              */
+    ForceBufferElementType *f;  /**< force output array, size natoms              */
 
     float   *e_lj;              /**< LJ energy output, size 1                     */
     float   *e_el;              /**< Electrostatics energy input, size 1          */

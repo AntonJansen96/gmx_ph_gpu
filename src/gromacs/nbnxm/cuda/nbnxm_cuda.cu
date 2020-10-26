@@ -658,7 +658,9 @@ void gpu_launch_cpyback(gmx_nbnxn_cuda_t       *nb,
     }
 
     /* DtoH f */
-    cu_copy_D2H_async(nbatom->out[0].f.data() + adat_begin * 3, adat->f + adat_begin,
+    // anton: hier de 3 naar 4 veranderen (als eerste fix)
+    const int numComp = nbatom->fstride;
+    cu_copy_D2H_async(nbatom->out[0].f.data() + adat_begin * numComp, adat->f + adat_begin,
                       (adat_len)*sizeof(*adat->f), stream);
 
     /* After the non-local D2H is launched the nonlocal_done event can be

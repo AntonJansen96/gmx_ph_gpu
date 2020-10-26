@@ -295,8 +295,8 @@ struct nonbonded_verlet_t
         //! Add the computed forces to \p f
         void atomdata_add_nbat_f_to_f(Nbnxm::AtomLocality  locality,
                                       rvec                *f,
+                                      gmx::ArrayRef<real>  electrostaticPotential, // anton: this I added
                                       gmx_wallcycle       *wcycle);
-
 
         //! Add the computed electrostatic potential to \p buffer
         void addElectrostaticPotential(const Nbnxm::AtomLocality  locality,
