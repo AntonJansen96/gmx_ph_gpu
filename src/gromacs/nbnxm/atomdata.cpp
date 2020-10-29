@@ -1195,7 +1195,12 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const Nbnxm::GridSet          &gridSet,
                 f[a][XX] += fnb[i];
                 f[a][YY] += fnb[i + 1];
                 f[a][ZZ] += fnb[i + 2];
-                f[a][3] += ElectrostaticPotential[i]; // anton: added this for reducing?
+                
+                if (!ElectrostaticPotential.empty()) // anton
+                {
+	                ElectrostaticPotential[a] += fnb[i + 3]; // anton: dit is nu correct
+	                // printf(fnb[i + 3]) // debug to check if kernel is correct
+	        }
             }
             break;
         case nbatX4:
