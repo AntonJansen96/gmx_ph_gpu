@@ -1196,11 +1196,11 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const Nbnxm::GridSet          &gridSet,
                 f[a][YY] += fnb[i + 1];
                 f[a][ZZ] += fnb[i + 2];
                 
-                if (!ElectrostaticPotential.empty()) // anton
-                {
-	                ElectrostaticPotential[a] += fnb[i + 3]; // anton: dit is nu correct
-	                // printf(fnb[i + 3]) // debug to check if kernel is correct
-	        }
+                if (!ElectrostaticPotential.empty())
+                {   /* anton: Reduction in electrostatics buffer now correct. */
+	                ElectrostaticPotential[a] += fnb[i + 3];
+	                // printf(fnb[i + 3]) // anton: Debug.
+	            }
             }
             break;
         case nbatX4:
