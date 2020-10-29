@@ -1198,9 +1198,9 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const Nbnxm::GridSet          &gridSet,
                 
                 if (!ElectrostaticPotential.empty())
                 {   /* anton: Reduction in electrostatics buffer now correct. */
-	                ElectrostaticPotential[a] += fnb[i + 3];
-	                // printf(fnb[i + 3]) // anton: Debug.
-	            }
+                    ElectrostaticPotential[a] += fnb[i + 3];
+                    // printf(fnb[i + 3]) // anton: Debug.
+                }
             }
             break;
         case nbatX4:
