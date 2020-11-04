@@ -349,13 +349,13 @@
  #endif
  #endif
  #if CALC_ELECTROSTATIC_POTENTIAL
- #ifdef EL_EWALD_ANY
+ #ifdef EL_EWALD_ANY 
              // TODO: Check if this doesn't race with the clearing above
-            //  anton: crude hack that might avoid this?
-            //  while (fci_buf[i * c_clSize + tidxi].w != 0.0f)
-            //     continue;
-             
-             fci_buf[i * c_clSize + tidxi].w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
+              //  fci_buf[i * c_clSize + tidxi].w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
+             if (tidxj == 0)
+             {
+                 fci_buf[i.w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
+             }
  #endif
  #endif
  
