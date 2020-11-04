@@ -354,7 +354,7 @@
               //  fci_buf[i * c_clSize + tidxi].w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
              if (tidxj == 0)
              {
-                 fci_buf[i.w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
+                 fci_buf[i].w -= 2 * beta * M_FLOAT_1_SQRTPI * qi;
              }
  #endif
  #endif
