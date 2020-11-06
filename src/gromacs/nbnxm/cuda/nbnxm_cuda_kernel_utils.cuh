@@ -702,8 +702,8 @@ void reduce_force_i(float *f_buf, float3 *f,
  */
 // anton: changed fin and *fout types from float3 to ForceBufferElementType
 static __forceinline__ __device__
-void reduce_force_i_warp_shfl(ForceBufferElementType fin,
-                              ForceBufferElementType *fout,
+void reduce_force_i_warp_shfl(float4 fin,
+                              float4 *fout,
                               float *fshift_buf, bool bCalcFshift,
                               int tidxj, int aidx,
                               const unsigned int activemask)
@@ -711,10 +711,12 @@ void reduce_force_i_warp_shfl(ForceBufferElementType fin,
     fin.x += gmx_shfl_down_sync(activemask, fin.x, c_clSize);
     fin.y += gmx_shfl_up_sync  (activemask, fin.y, c_clSize);
     fin.z += gmx_shfl_down_sync(activemask, fin.z, c_clSize);
+    fin.w += gmx_shfl_up_sync  (activemask, fin.w, c_clSize);
 
     if (tidxj & 1)
     {
         fin.x = fin.y;
+        fin.z = fin.w;
     }
 
     fin.x += gmx_shfl_down_sync(activemask, fin.x, 2*c_clSize);
@@ -725,12 +727,11 @@ void reduce_force_i_warp_shfl(ForceBufferElementType fin,
         fin.x = fin.z;
     }
 
-    /* Threads 0,1,2 and 4,5,6 increment x,y,z for their warp */
-    if ((tidxj & 3) < 3)
+    /* Threads 0,1,2,3 and 4,5,6,7 increment x,y,z,w for their warp */
     {
         atomicAdd(&fout[aidx].x + (tidxj & 3), fin.x);
 
-        if (bCalcFshift)
+        if (bCalcFshift && (tidxj & 3) < 3)
         {
             *fshift_buf += fin.x;
         }
