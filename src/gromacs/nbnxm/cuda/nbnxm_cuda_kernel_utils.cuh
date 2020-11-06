@@ -581,7 +581,7 @@ void reduce_force_j_warp_shfl(float4 f,
     f.x += gmx_shfl_down_sync(activemask, f.x, 1);
     f.y += gmx_shfl_up_sync  (activemask, f.y, 1);
     f.z += gmx_shfl_down_sync(activemask, f.z, 1);
-    f.y += gmx_shfl_up_sync  (activemask, f.w, 1);
+    f.w += gmx_shfl_up_sync  (activemask, f.w, 1);
 
     if (tidxi & 1)
     {
