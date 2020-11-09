@@ -147,7 +147,7 @@ real ConstantPH::updateLambdas(const t_inputrec &ir,
     for (std::size_t i = 0; i < lambdaAtoms_.size(); ++i)
     {
        dvdl_[lambdaAtomsIndex_[i]] += potential_[lambdaAtoms_[i]]*(chargeB_[lambdaAtoms_[i]]-chargeA_[lambdaAtoms_[i]]);
-	   //fprintf(stderr,"%zu %i %i %g\n",i,lambdaAtomsIndex_[i],lambdaAtoms_[i],dvdl_[lambdaAtomsIndex_[i]]);
+	   //fprintf(stderr,"%zu %i %i %g\n",i,lambdaAtomsIndex_[i],lambdaAtoms_[i],dvdl_[lambdaAtomsIndex_[i]]);   
     }
 
     // for multistates put lambdas to table
@@ -166,6 +166,7 @@ real ConstantPH::updateLambdas(const t_inputrec &ir,
     for (int i = 0; i < cphmd_gen_->nr_lg; i++)
     {
         compute_forces(cphmd_gen_.get(), ml_, dvdl_[i], lambdas, i);
+		//fprintf(stderr,"dvdl %i %g\n",i, dvdl_[i]);
         ml_ = ml_->next;
     }
 	ml_ = ml_temp_;
@@ -281,7 +282,7 @@ real ConstantPH::updateLambdas(const t_inputrec &ir,
         int step = std::floor(t/(&ir)->delta_t);
         if(step % cphmd_gen_->nst_lambda == 0)
         {
-            fprintf(stderr, "time %.6f lambda %.4f dvdl %.4f T %.4f\n", t, ml_->lambda->x, ml_->lambda->dvdl,ml_->lambda->T);
+			fprintf(stderr, "time %.6f lambda %.4f dvdl %.4f T %.4f\n", t, ml_->lambda->x, ml_->lambda->dvdl,ml_->lambda->T);
 
             fprintf(ml_->out, "%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f\n ", t, ml_->lambda->x, ml_->lambda->dvdl, ml_->lambda->T, ml_->lambda->v, ml_->lambda->dvdl_pot, ml_->lambda->dvdl_ref,  ml_->lambda->dvdl_dwp,  ml_->lambda->dvdl_ph);
         }
@@ -952,7 +953,7 @@ void do_constraints(struct cphmd_general *cphmd_gen, struct multi_lambda *ml, re
 	real sum_dt2_per_mass;
 	int counter;  // how many lambda groups in multistate group
 	
-	while ( (it<1000 && max_deviation > 0.001) || (it<1000 && abs(l_cc - l_cc_init) > 0.001) ) 
+	while ( (it<10000 && max_deviation > 0.00001) || (it<10000 && abs(l_cc - l_cc_init) > 0.00001) ) 
 	{
 		// multiple states constraint for all multistate groups
 		
@@ -1068,6 +1069,8 @@ void do_constraints(struct cphmd_general *cphmd_gen, struct multi_lambda *ml, re
 	for (int i = 0; i < cphmd_gen->nr_lg; i++)
 	{
 		ml->lambda->v = (ml->lambda->x - ml->lambda->x_old)/dt;
+		//fprintf(stderr,"x = %g x_old = %g \n",ml->lambda->x, ml->lambda->x_old);
+		//fprintf(stderr,"v = %g \n",ml->lambda->v);
 		ml->lambda->ekin = 0.5*ml->lambda->m*ml->lambda->v*ml->lambda->v;
 		ml->lambda->T = 2.0*(ml->lambda->ekin)/BOLTZ;
 		ml = ml->next;
