@@ -202,7 +202,7 @@
      float rlist_sq              = nbparam.rlistOuter_sq;
  #endif
  
- #ifdef CALC_ELECTROSTATIC_POTENTIAL // anton: temporary fix
+ #if defined CALC_ENERGIES || CALC_ELECTROSTATIC_POTENTIAL // anton: temporary fix
      float  beta        = nbparam.ewald_beta;
      float  ewald_shift = nbparam.sh_ewald;
  #endif
