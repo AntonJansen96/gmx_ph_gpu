@@ -102,7 +102,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void bonds_gpu(float *vtot, const int nbonds,
                const t_iatom forceatoms[], const t_iparams forceparams[],
-               const float4 xq[], fvec force[], fvec fshift[],
+               const float4 xq[], gmx::ForceBufferElementType force[], fvec fshift[],
                const PbcAiuc pbcAiuc)
 {
     const int        i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -203,7 +203,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void angles_gpu(float *vtot, const int nbonds,
                 const t_iatom forceatoms[], const t_iparams forceparams[],
-                const float4 x[], fvec force[], fvec fshift[],
+                const float4 x[], gmx::ForceBufferElementType force[], fvec fshift[],
                 const PbcAiuc pbcAiuc)
 {
     __shared__ float vtot_loc;
@@ -310,7 +310,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void urey_bradley_gpu(float *vtot, const int nbonds,
                       const t_iatom forceatoms[], const t_iparams forceparams[],
-                      const float4 x[], fvec force[], fvec fshift[],
+                      const float4 x[], gmx::ForceBufferElementType force[], fvec fshift[],
                       const PbcAiuc pbcAiuc)
 {
     __shared__ float vtot_loc;
@@ -481,7 +481,7 @@ template <bool calcVir>
 __device__
 static void do_dih_fup_gpu(const int i, const int j, const int k, const int l,
                            const float ddphi, const fvec r_ij, const fvec r_kj, const fvec r_kl,
-                           const fvec m, const fvec n, fvec force[], fvec fshift[],
+                           const fvec m, const fvec n, gmx::ForceBufferElementType force[], fvec fshift[],
                            const PbcAiuc &pbcAiuc,
                            const float4 x[], const int t1, const int t2, const int gmx_unused t3)
 {
@@ -540,7 +540,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void  pdihs_gpu(float *vtot, const int nbonds,
                 const t_iatom forceatoms[], const t_iparams forceparams[],
-                const float4 x[], fvec f[], fvec fshift[],
+                const float4 x[], gmx::ForceBufferElementType f[], fvec fshift[],
                 const PbcAiuc pbcAiuc)
 {
     const int        i = blockIdx.x*blockDim.x + threadIdx.x;
@@ -621,7 +621,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void rbdihs_gpu(float *vtot, const int nbonds,
                 const t_iatom forceatoms[], const t_iparams forceparams[],
-                const float4 x[], fvec f[], fvec fshift[],
+                const float4 x[], gmx::ForceBufferElementType f[], fvec fshift[],
                 const PbcAiuc pbcAiuc)
 {
     constexpr float  c0 = 0.0f, c1 = 1.0f, c2 = 2.0f, c3 = 3.0f, c4 = 4.0f, c5 = 5.0f;
@@ -774,7 +774,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void  idihs_gpu(float *vtot, const int nbonds,
                 const t_iatom forceatoms[], const t_iparams forceparams[],
-                const float4 x[], fvec f[], fvec fshift[],
+                const float4 x[], gmx::ForceBufferElementType f[], fvec fshift[],
                 const PbcAiuc pbcAiuc)
 {
     const int        i = blockIdx.x*blockDim.x + threadIdx.x;
@@ -865,7 +865,7 @@ template <bool calcVir, bool calcEner>
 __global__
 void pairs_gpu(const int nbonds,
                const t_iatom iatoms[], const t_iparams iparams[],
-               const float4 xq[], fvec force[], fvec fshift[],
+               const float4 xq[], gmx::ForceBufferElementType force[], fvec fshift[],
                const PbcAiuc pbcAiuc,
                const float scale_factor,
                float *vtotVdw, float *vtotElec)
@@ -979,7 +979,7 @@ GpuBonded::Impl::launchKernels(const t_forcerec *fr,
     const t_iparams *forceparams_d = forceparamsDevice;
     float           *vtot_d        = vtotDevice;
     const float4    *xq_d          = xqDevice;
-    fvec            *force_d       = forceDevice;
+    ForceBufferElementType *force_d       = forceDevice;
     fvec            *fshift_d      = fshiftDevice;
 
     for (int ftype : ftypesOnGpu)

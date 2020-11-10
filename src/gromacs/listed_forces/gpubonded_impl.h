@@ -60,6 +60,14 @@ struct t_forcerec;
 namespace gmx
 {
 
+#define PH_ON_GPU // anton: where do we something like this
+
+#if defined(PH_ON_GPU) // anton
+    typedef float ForceBufferElementType[4];
+#else
+    typedef fvec ForceBufferElementType;
+#endif
+
 /*! \internal \brief Version of InteractionList that supports pinning */
 struct HostInteractionList
 {
@@ -126,7 +134,7 @@ class GpuBonded::Impl
         //! Position-charge vector on the device.
         const float4         *xqDevice = nullptr;
         //! Force vector on the device.
-        fvec                 *forceDevice = nullptr;
+        ForceBufferElementType *forceDevice = nullptr;
         //! Shift force vector on the device.
         fvec                 *fshiftDevice = nullptr;
         //! \brief Host-side virial buffer

@@ -192,7 +192,7 @@ GpuBonded::Impl::updateInteractionListsAndDeviceBuffers(ArrayRef<const int>  nbn
     }
 
     xqDevice     = static_cast<float4 *>(xqDevicePtr);
-    forceDevice  = static_cast<fvec *>(forceDevicePtr);
+    forceDevice  = static_cast<ForceBufferElementType *>(forceDevicePtr);
     fshiftDevice = static_cast<fvec *>(fshiftDevicePtr);
     // TODO wallcycle sub stop
 }
