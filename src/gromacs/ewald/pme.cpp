@@ -210,6 +210,10 @@ bool pme_gpu_supports_input(const t_inputrec &ir, const gmx_mtop_t &mtop, std::s
     {
         errorReasons.emplace_back("not a dynamical integrator");
     }
+    if (ir.lambda_dynamics)
+    {
+        errorReasons.emplace_back("lambda dynamics");
+    }
     return addMessageIfNotSupported(errorReasons, error);
 }
 
