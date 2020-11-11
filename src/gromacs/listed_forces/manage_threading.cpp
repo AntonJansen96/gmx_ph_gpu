@@ -238,8 +238,11 @@ static void divide_bondeds_over_threads(bonded_threading_t *bt,
             /* Perturbation is not implemented in the GPU bonded kernels.
              * But instead of doing all on the CPU, we could do only
              * the actually perturbed interactions on the CPU.
+             *
+             * 1-4 interactions are modified by the constant-pH code
              */
-            if (!ftypeHasPerturbedEntries(idef, ftype))
+#warning "Replace this F_LJ14 conditional by a check on ir.lambda_dynamics"
+            if (!ftypeHasPerturbedEntries(idef, ftype) && ftype != F_LJ14)
             {
                 /* We will assign this interaction type to the GPU */
                 nrToAssignToCpuThreads = 0;
