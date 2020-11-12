@@ -4,8 +4,6 @@
 .. Another useful one-liner to find undocumentedvariables:
 ..  ( export INPUT_FILE=docs/user-guide/environment-variables.rst; GIT_PAGER="cat ";   for ss in `for s in $(git grep getenv |  sed 's/.*getenv("\(.*\)".*/\1/' | sort -u  | grep '^[A-Z]'); do [ $(grep $s $INPUT_FILE -c) -eq 0 ] && echo $s; done `; do git grep $ss ; done )
 
-.. TODO: still undocumented GMX_QM_GAUSSIAN_NCPUS
-
 Environment Variables
 =====================
 
@@ -127,6 +125,12 @@ Debugging
         arrive first. Setting this variable switches to the generic path with fixed waiting
         order.
 
+``GMX_TEST_REQUIRED_NUMBER_OF_DEVICES``
+        sets the number of GPUs required by the test suite. By default, the test suite would
+        fall-back to using CPU if GPUs could not be detected. Set it to a positive integer value
+        to ensure that at least this at least this number of usable GPUs are detected. Default:
+        0 (not testing GPU availability).
+
 There are a number of extra environment variables like these
 that are used in debugging - check the code!
 
@@ -143,19 +147,28 @@ Performance and Run Control
         to localized bonded interaction distribution; optimal value dependent on
         system and hardware, default value is 4.
 
-``GMX_CUDA_NB_EWALD_TWINCUT``
+``GMX_GPU_NB_EWALD_TWINCUT``
         force the use of twin-range cutoff kernel even if :mdp:`rvdw` equals
         :mdp:`rcoulomb` after PP-PME load balancing. The switch to twin-range kernels is automated,
         so this variable should be used only for benchmarking.
 
-``GMX_CUDA_NB_ANA_EWALD``
+``GMX_GPU_NB_ANA_EWALD``
         force the use of analytical Ewald kernels. Should be used only for benchmarking.
 
-``GMX_CUDA_NB_TAB_EWALD``
+``GMX_GPU_NB_TAB_EWALD``
         force the use of tabulated Ewald kernels. Should be used only for benchmarking.
 
 ``GMX_DISABLE_CUDA_TIMING``
         Deprecated. Use ``GMX_DISABLE_GPU_TIMING`` instead.
+
+``GMX_GPU_DD_COMMS``
+        perform domain decomposition halo exchange communication operations (on coordinate and force buffers)
+        directly on GPU memory spaces, without the staging of data through CPU memory, where possible.
+
+``GMX_GPU_PME_PP_COMMS``
+        when the simulation uses a separate PME rank, perform communication operations between PP and PME rank
+        (for coordinate and force buffers) directly on GPU memory spaces, without the staging of data through CPU
+        memory, where possible. 
 
 ``GMX_CYCLE_ALL``
         times all code during runs.  Incompatible with threads.
@@ -221,6 +234,14 @@ Performance and Run Control
 ``GMX_FORCE_UPDATE``
         update forces when invoking ``mdrun -rerun``.
 
+``GMX_FORCE_UPDATE_DEFAULT_GPU``
+        Force update to run on the GPU by default, overriding the ``mdrun -update auto`` option. Works similar to setting
+        ``mdrun -update gpu``, but (1) falls back to the CPU code-path, if set with input that is not supported and
+        (2) can be used to run update on GPUs in multi-rank cases. The latter case should be
+        considered experimental since it lacks substantial testing. Also, GPU update is only supported with the GPU direct
+        communications and ``GMX_FORCE_UPDATE_DEFAULT_GPU`` variable should be set simultaneously with ``GMX_GPU_DD_COMMS``
+        and ``GMX_GPU_PME_PP_COMMS`` environment variables in multi-rank case. Does not override ``mdrun -update cpu``.
+
 ``GMX_GPU_ID``
         set in the same way as ``mdrun -gpu_id``, ``GMX_GPU_ID``
         allows the user to specify different GPU IDs for different ranks, which can be useful for selecting different
@@ -231,6 +252,10 @@ Performance and Run Control
         of GPU tasks to GPU device IDs to be different on different ranks, if e.g. the MPI
         runtime permits this variable to be different for different ranks. Cannot be used
         in conjunction with ``mdrun -gputasks``. Has all the same requirements as ``mdrun -gputasks``.
+
+``GMX_GPU_DISABLE_COMPATIBILITY_CHECK``
+        Disables the hardware compatibility check in OpenCL and SYCL. Useful for developers
+        and allows testing the OpenCL/SYCL kernels on non-supported platforms without source code modification.
 
 ``GMX_IGNORE_FSYNC_FAILURE_ENV``
         allow :ref:`gmx mdrun` to continue even if
@@ -243,11 +268,6 @@ Performance and Run Control
 ``GMX_MAXCONSTRWARN``
         if set to -1, :ref:`gmx mdrun` will
         not exit if it produces too many LINCS warnings.
-
-``GMX_NB_GENERIC``
-        use the generic C kernel.  Should be set if using
-        the group-based cutoff scheme and also sets ``GMX_NO_SOLV_OPT`` to be true,
-        thus disabling solvent optimizations as well.
 
 ``GMX_NB_MIN_CI``
         neighbor list balancing parameter used when running on GPU. Sets the
@@ -309,10 +329,6 @@ Performance and Run Control
 ``GMX_NOPREDICT``
         shell positions are not predicted.
 
-``GMX_NO_SOLV_OPT``
-        turns off solvent optimizations; automatic if ``GMX_NB_GENERIC``
-        is enabled.
-
 ``GMX_NO_UPDATEGROUPS``
         turns off update groups. May allow for a decomposition of more
         domains for small systems at the cost of communication during update.
@@ -324,7 +340,7 @@ Performance and Run Control
 
 ``GMX_PME_NUM_THREADS``
         set the number of OpenMP or PME threads; overrides the default set by
-        :ref:`gmx mdrun`; can be used instead of the `-npme` command line option,
+        :ref:`gmx mdrun`; can be used instead of the ``-npme`` command line option,
         also useful to set heterogeneous per-process/-node thread count.
 
 ``GMX_PME_P3M``
@@ -333,7 +349,7 @@ Performance and Run Control
 ``GMX_PME_THREAD_DIVISION``
         PME thread division in the format "x y z" for all three dimensions. The
         sum of the threads in each dimension must equal the total number of PME threads (set in
-        `GMX_PME_NTHREADS`).
+        :envvar:`GMX_PME_NTHREADS`).
 
 ``GMX_PMEONEDD``
         if the number of domain decomposition cells is set to 1 for both x and y,
@@ -345,11 +361,6 @@ Performance and Run Control
 ``GMX_REQUIRE_TABLES``
         require the use of tabulated Coulombic
         and van der Waals interactions.
-
-``GMX_SCSIGMA_MIN``
-        the minimum value for soft-core sigma. **Note** that this value is set
-        using the :mdp:`sc-sigma` keyword in the :ref:`mdp` file, but this environment variable can be used
-        to reproduce pre-4.5 behavior with respect to this parameter.
 
 ``GMX_TPIC_MASSES``
         should contain multiple masses used for test particle insertion into a cavity.
@@ -365,7 +376,7 @@ Performance and Run Control
 ``HWLOC_XMLFILE``
         Not strictly a |Gromacs| environment variable, but on large machines
         the hwloc detection can take a few seconds if you have lots of MPI processes.
-        If you run the hwloc command `lstopo out.xml` and set this environment
+        If you run the hwloc command :command:`lstopo out.xml` and set this environment
         variable to point to the location of this file, the hwloc library will use
         the cached information instead, which can be faster.
 
@@ -462,28 +473,11 @@ compilation of OpenCL kernels, but they are also used in device selection.
         Enables i-atom data (type or LJ parameter) prefetch allowing
         testing on platforms where this behavior is not default.
 
-``GMX_OCL_NB_ANA_EWALD``
-        Forces the use of analytical Ewald kernels. Equivalent of
-        CUDA environment variable ``GMX_CUDA_NB_ANA_EWALD``
-
-``GMX_OCL_NB_TAB_EWALD``
-        Forces the use of tabulated Ewald kernel. Equivalent
-        of CUDA environment variable ``GMX_OCL_NB_TAB_EWALD``
-
-``GMX_OCL_NB_EWALD_TWINCUT``
-        Forces the use of twin-range cutoff kernel. Equivalent of
-        CUDA environment variable ``GMX_CUDA_NB_EWALD_TWINCUT``
-
 ``GMX_OCL_FILE_PATH``
         Use this parameter to force |Gromacs| to load the OpenCL
         kernels from a custom location. Use it only if you want to
         override |Gromacs| default behavior, or if you want to test
         your own kernels.
-
-``GMX_OCL_DISABLE_COMPATIBILITY_CHECK``
-        Disables the hardware compatibility check. Useful for developers
-        and allows testing the OpenCL kernels on non-supported platforms
-        (like Intel iGPUs) without source code modification.
 
 ``GMX_OCL_SHOW_DIAGNOSTICS``
         Use Intel OpenCL extension to show additional runtime performance
@@ -491,29 +485,10 @@ compilation of OpenCL kernels, but they are also used in device selection.
 
 Analysis and Core Functions
 ---------------------------
-``GMX_QM_ACCURACY``
-        accuracy in Gaussian L510 (MC-SCF) component program.
-
-``GMX_QM_ORCA_BASENAME``
-        prefix of :ref:`tpr` files, used in Orca calculations
-        for input and output file names.
-
-``GMX_QM_CPMCSCF``
-        when set to a nonzero value, Gaussian QM calculations will
-        iteratively solve the CP-MCSCF equations.
-
-``GMX_QM_MODIFIED_LINKS_DIR``
-        location of modified links in Gaussian.
 
 ``DSSP``
         used by :ref:`gmx do_dssp` to point to the ``dssp``
         executable (not just its path).
-
-``GMX_QM_GAUSS_DIR``
-        directory where Gaussian is installed.
-
-``GMX_QM_GAUSS_EXE``
-        name of the Gaussian executable.
 
 ``GMX_DIPOLE_SPACING``
         spacing used by :ref:`gmx dipoles`.
@@ -537,24 +512,12 @@ Analysis and Core Functions
         the time unit used in output files, can be
         anything in fs, ps, ns, us, ms, s, m or h.
 
-``GMX_QM_GAUSSIAN_MEMORY``
-        memory used for Gaussian QM calculation.
-
 ``MULTIPROT``
         name of the ``multiprot`` executable, used by the
         contributed program ``do_multiprot``.
 
 ``NCPUS``
         number of CPUs to be used for Gaussian QM calculation
-
-``GMX_ORCA_PATH``
-        directory where Orca is installed.
-
-``GMX_QM_SA_STEP``
-        simulated annealing step size for Gaussian QM calculation.
-
-``GMX_QM_GROUND_STATE``
-        defines state for Gaussian surface hopping calculation.
 
 ``GMX_TOTAL``
         name of the ``total`` executable used by the contributed

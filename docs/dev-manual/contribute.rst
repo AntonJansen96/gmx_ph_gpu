@@ -40,7 +40,7 @@ please make sure that you have checked all the points on this list:
   widespread adoption of the method.
 
 * *Advance discussion*: Please communicate with the other developers,
-  e.g.  on the `developer mailing list`_ mailing list, or `redmine`_ to let them know of the general
+  e.g.  on the `developer mailing list`_ mailing list, or `issue tracker`_ to let them know of the general
   nature of your plans. This will prevent duplicate or wasted
   effort. It is also a good idea to search those resources as well as
   the literature and WWW for other projects that may be relevant.
@@ -111,7 +111,7 @@ please make sure that you have checked all the points on this list:
   :doc:`coding style <style>` and :ref:`code formatting <code-formatting>`
   guidelines. This will make the code review go more smoothly on both sides. There are a number of
   tools already included with |Gromacs| to facilitate this, please have
-  a look at :ref:`the respective part of the documentation <gmx-uncrustify>`.
+  a look at :ref:`the respective part of the documentation <gmx-codeformatting>`.
 
 * *Code documentation*: To ensure proper code documentation, please follow the
   instructions provided for the use of :doc:`doxygen <doxygen>`. In addition to this,
@@ -124,13 +124,13 @@ please make sure that you have checked all the points on this list:
 Preparing code for submission
 -----------------------------
 
-|Gromacs| revision control uses a ``git`` repository managed by :ref:`Gerrit <gmx-gerrit>`.
+|Gromacs| uses ``git`` for :doc:`change-management`.
 Instead of accepting "pull requests", |Gromacs| changes are submitted as individual
-commits on the tip of the ``master`` branch hosted at https://gerrit.gromacs.org.
+commits on the tip of the ``master`` branch hosted at `gitlab`_.
 Preparing, submitting, and managing patches for a change requires a little bit
 of set-up. Refer to :doc:`change-management` for information about
 
-* accessing the |Gromacs| Gerrit server
+* accessing the |Gromacs| *git* repository
 * structure of the repository
 * source control without merge commits
 * ``git`` usage that may be less common in other development work flows
@@ -142,8 +142,11 @@ Alternatives
 https://github.com/gromacs/gromacs. You may wish to fork the project
 under your own GitHub account and make your feature available that
 way. This should help you to generate a following of users that would
-help make the case for contributing the feature to the core. This process
-would then still need to follow the remaining criteria outlined here.
+help make the case for contributing the feature to the core. This
+process would then still need to follow the remaining criteria
+outlined here.  If you fork |Gromacs|, please set the CMake variable
+``GMX_VERSION_STRING_OF_FORK`` to an appropriate descriptive string
+- see cmake/gmxVersionInfo.cmake for details.
 
 There is a project underway to develop a stable API for |Gromacs|,
 which promises to be a great tool for permitting innovation while

@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -56,11 +56,11 @@ namespace gmx
 {
 
 //! Returns whether there are any interactions in ilists suitable for a GPU.
-static bool someInteractionsCanRunOnGpu(const InteractionLists &ilists)
+static bool someInteractionsCanRunOnGpu(const InteractionLists& ilists)
 {
-    for (int ftype : ftypesOnGpu)
+    for (int fType : fTypesOnGpu)
     {
-        if (!ilists[ftype].iatoms.empty())
+        if (!ilists[fType].iatoms.empty())
         {
             // Perturbation is not implemented in the GPU bonded
             // kernels. If all the interactions were actually
@@ -76,10 +76,10 @@ static bool someInteractionsCanRunOnGpu(const InteractionLists &ilists)
 }
 
 //! Returns whether there are any bonded interactions in the global topology suitable for a GPU.
-static bool bondedInteractionsCanRunOnGpu(const gmx_mtop_t &mtop)
+static bool bondedInteractionsCanRunOnGpu(const gmx_mtop_t& mtop)
 {
     // Check the regular molecule types
-    for (const auto &moltype : mtop.moltype)
+    for (const auto& moltype : mtop.moltype)
     {
         if (someInteractionsCanRunOnGpu(moltype.ilist))
         {
@@ -101,20 +101,18 @@ static bool bondedInteractionsCanRunOnGpu(const gmx_mtop_t &mtop)
  * \c errorReasons why bondeds on a GPU are not supported.
  *
  * \returns Whether the lack of errorReasons indicate there is support. */
-static bool
-addMessageIfNotSupported(ArrayRef <const std::string> errorReasons,
-                         std::string                 *error)
+static bool addMessageIfNotSupported(ArrayRef<const std::string> errorReasons, std::string* error)
 {
     bool isSupported = errorReasons.empty();
     if (!isSupported && error)
     {
-        *error  = "Bonded interactions cannot run on GPUs: ";
+        *error = "Bonded interactions cannot run on GPUs: ";
         *error += joinStrings(errorReasons, "; ") + ".";
     }
     return isSupported;
 }
 
-bool buildSupportsGpuBondeds(std::string *error)
+bool buildSupportsGpuBondeds(std::string* error)
 {
     std::vector<std::string> errorReasons;
 
@@ -122,20 +120,18 @@ bool buildSupportsGpuBondeds(std::string *error)
     {
         errorReasons.emplace_back("not supported with double precision");
     }
-    if (GMX_GPU == GMX_GPU_OPENCL)
+    if (GMX_GPU_OPENCL)
     {
         errorReasons.emplace_back("not supported with OpenCL build of GROMACS");
     }
-    else if (GMX_GPU == GMX_GPU_NONE)
+    else if (!GMX_GPU)
     {
         errorReasons.emplace_back("not supported with CPU-only build of GROMACS");
     }
     return addMessageIfNotSupported(errorReasons, error);
 }
 
-bool inputSupportsGpuBondeds(const t_inputrec &ir,
-                             const gmx_mtop_t &mtop,
-                             std::string      *error)
+bool inputSupportsGpuBondeds(const t_inputrec& ir, const gmx_mtop_t& mtop, std::string* error)
 {
     std::vector<std::string> errorReasons;
 
@@ -143,17 +139,19 @@ bool inputSupportsGpuBondeds(const t_inputrec &ir,
     {
         errorReasons.emplace_back("No supported bonded interactions are present");
     }
-    if (ir.cutoff_scheme == ecutsGROUP)
-    {
-        errorReasons.emplace_back("group cutoff scheme");
-    }
     if (!EI_DYNAMICS(ir.eI))
     {
-        errorReasons.emplace_back("not a dynamical integrator");
+        errorReasons.emplace_back(
+                "Cannot compute bonded interactions on a GPU, because GPU implementation requires "
+                "a dynamical integrator (md, sd, etc).");
     }
     if (EI_MIMIC(ir.eI))
     {
         errorReasons.emplace_back("MiMiC");
+    }
+    if (ir.useMts)
+    {
+        errorReasons.emplace_back("Cannot run with multiple time stepping");
     }
     if (ir.opts.ngener > 1)
     {
@@ -162,57 +160,55 @@ bool inputSupportsGpuBondeds(const t_inputrec &ir,
     return addMessageIfNotSupported(errorReasons, error);
 }
 
-#if GMX_GPU != GMX_GPU_CUDA
+#if !GMX_GPU_CUDA
 
 class GpuBonded::Impl
 {
 };
 
-GpuBonded::GpuBonded(const gmx_ffparams_t & /* ffparams */,
-                     void                 * /*streamPtr */)
-    : impl_(nullptr)
+GpuBonded::GpuBonded(const gmx_ffparams_t& /* ffparams */,
+                     const float /* electrostaticsScaleFactor */,
+                     const DeviceContext& /* deviceContext */,
+                     const DeviceStream& /* deviceStream */,
+                     gmx_wallcycle* /* wcycle */) :
+    impl_(nullptr)
 {
 }
 
 GpuBonded::~GpuBonded() = default;
 
-void
-GpuBonded::updateInteractionListsAndDeviceBuffers(ArrayRef<const int>   /* nbnxnAtomOrder */,
-                                                  const t_idef        & /* idef */,
-                                                  void                * /* xqDevice */,
-                                                  void                * /* forceDevice */,
-                                                  void                * /* fshiftDevice */)
+void GpuBonded::updateInteractionListsAndDeviceBuffers(ArrayRef<const int> /* nbnxnAtomOrder */,
+                                                       const InteractionDefinitions& /* idef */,
+                                                       void* /* xqDevice */,
+                                                       DeviceBuffer<RVec> /* forceDevice */,
+                                                       DeviceBuffer<RVec> /* fshiftDevice */)
 {
 }
 
-bool
-GpuBonded::haveInteractions() const
-{
-    return false;
-}
-
-void
-GpuBonded::launchKernels(const t_forcerec * /* fr */,
-                         int            /* forceFlags */,
-                         const matrix   /* box */)
+void GpuBonded::setPbc(PbcType /* pbcType */, const matrix /* box */, bool /* canMoleculeSpanPbc */)
 {
 }
 
-void
-GpuBonded::launchEnergyTransfer()
+bool GpuBonded::haveInteractions() const
+{
+    return !impl_;
+}
+
+void GpuBonded::launchKernel(const gmx::StepWorkload& /* stepWork */) {}
+
+void GpuBonded::setPbcAndlaunchKernel(PbcType /* pbcType */,
+                                      const matrix /* box */,
+                                      bool /* canMoleculeSpanPbc */,
+                                      const gmx::StepWorkload& /* stepWork */)
 {
 }
 
-void
-GpuBonded::accumulateEnergyTerms(gmx_enerdata_t * /* enerd */)
-{
-}
+void GpuBonded::launchEnergyTransfer() {}
 
-void
-GpuBonded::clearEnergies()
-{
-}
+void GpuBonded::waitAccumulateEnergyTerms(gmx_enerdata_t* /* enerd */) {}
 
-#endif /* GMX_GPU != GMX_GPU_CUDA */
+void GpuBonded::clearEnergies() {}
 
-}      // namespace gmx
+#endif // !GMX_GPU_CUDA
+
+} // namespace gmx

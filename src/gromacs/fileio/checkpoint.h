@@ -3,7 +3,8 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017 by the GROMACS development team.
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -42,8 +43,11 @@
 
 #include <vector>
 
+#include "gromacs/compat/pointers.h"
 #include "gromacs/math/vectypes.h"
 #include "gromacs/utility/basedefinitions.h"
+#include "gromacs/utility/gmxmpi.h"
+#include "gromacs/utility/keyvaluetreebuilder.h"
 
 class energyhistory_t;
 struct gmx_file_position_t;
@@ -53,48 +57,233 @@ struct t_fileio;
 struct t_inputrec;
 class t_state;
 struct t_trxframe;
+class ConstantPH;
+
+namespace gmx
+{
+
+struct MdModulesNotifier;
+class KeyValueTreeObject;
+class ReadCheckpointDataHolder;
+class WriteCheckpointDataHolder;
+
+/*! \brief Read to a key-value-tree value used for checkpointing.
+ *
+ * \tparam ValueType
+ *
+ * \param[in] value the value to be checkpointed
+ * \param[in] name name of the value to be checkpointed
+ * \param[in] identifier uniquely identifies the module that is checkpointing
+ *                       typically the module name
+ * \param[in] kvt the key value tree to read from
+ *
+ * \throws InternalError if kvt does not contain requested value.
+ * \note Triggers assertion if value type is not correct.
+ */
+template<typename ValueType>
+void readKvtCheckpointValue(compat::not_null<ValueType*> value,
+                            const std::string&           name,
+                            const std::string&           identifier,
+                            const KeyValueTreeObject&    kvt);
+//! \copydoc readKvtCheckpointValue
+extern template void readKvtCheckpointValue(compat::not_null<std::int64_t*> value,
+                                            const std::string&              name,
+                                            const std::string&              identifier,
+                                            const KeyValueTreeObject&       kvt);
+//! \copydoc readKvtCheckpointValue
+extern template void readKvtCheckpointValue(compat::not_null<real*>   value,
+                                            const std::string&        name,
+                                            const std::string&        identifier,
+                                            const KeyValueTreeObject& kvt);
+
+/*! \brief Write to a key-value-tree used for checkpointing.
+ *
+ * \tparam ValueType
+ *
+ * \param[in] value name of the value to be checkpointed
+ * \param[in] name the value to be checkpointed
+ * \param[in] identifier uniquely identifies the module that is checkpointing
+ *                       typically the module name
+ * \param[in] kvtBuilder the key-value-tree builder used to store the checkpoint values
+ */
+template<typename ValueType>
+void writeKvtCheckpointValue(const ValueType&          value,
+                             const std::string&        name,
+                             const std::string&        identifier,
+                             KeyValueTreeObjectBuilder kvtBuilder);
+//! \copydoc writeKvtCheckpointValue
+extern template void writeKvtCheckpointValue(const std::int64_t&       value,
+                                             const std::string&        name,
+                                             const std::string&        identifier,
+                                             KeyValueTreeObjectBuilder kvtBuilder);
+//! \copydoc writeKvtCheckpointValue
+extern template void writeKvtCheckpointValue(const real&               value,
+                                             const std::string&        name,
+                                             const std::string&        identifier,
+                                             KeyValueTreeObjectBuilder kvtBuilder);
+
+/*! \libinternal
+ * \brief Provides the MdModules with the checkpointed data on the master rank.
+ */
+struct MdModulesCheckpointReadingDataOnMaster
+{
+    //! The data of the MdModules that is stored in the checkpoint file
+    const KeyValueTreeObject& checkpointedData_;
+    //! The version of the read ceckpoint file
+    int checkpointFileVersion_;
+};
+
+/*! \libinternal
+ * \brief Provides the MdModules with the communication record to broadcast.
+ */
+struct MdModulesCheckpointReadingBroadcast
+{
+    //! The communicator
+    MPI_Comm communicator_;
+    //! Whether the run is executed in parallel
+    bool isParallelRun_;
+    //! The version of the read file version
+    int checkpointFileVersion_;
+};
+
+/*! \libinternal \brief Writing the MdModules data to a checkpoint file.
+ */
+struct MdModulesWriteCheckpointData
+{
+    //! Builder for the Key-Value-Tree to store the MdModule checkpoint data
+    KeyValueTreeObjectBuilder builder_;
+    //! The version of the read file version
+    int checkpointFileVersion_;
+};
+
+} // namespace gmx
 
 /* the name of the environment variable to disable fsync failure checks with */
 #define GMX_IGNORE_FSYNC_FAILURE_ENV "GMX_IGNORE_FSYNC_FAILURE"
 
-/* Write a checkpoint to <fn>.cpt
- * Appends the _step<step>.cpt with bNumberAndKeep,
- * otherwise moves the previous <fn>.cpt to <fn>_prev.cpt
+// TODO Replace this mechanism with std::array<char, 1024> or similar.
+#define CPTSTRLEN 1024
+
+/*!
+ * \brief
+ * Header explaining the context of a checkpoint file.
+ *
+ * TODO Expand this into being a container of all data for
+ * serialization of a checkpoint, which can be stored by the caller
+ * (e.g. so that mdrun doesn't have to open the checkpoint twice).
+ * This will separate issues of allocation from those of
+ * serialization, help separate comparison from reading, and have
+ * better defined transformation functions to/from trajectory frame
+ * data structures.
+ *
+ * Several fields were once written to checkpoint file headers, but
+ * have been removed. So that old files can continue to be read,
+ * the names of such fields contain the string "_UNUSED" so that it
+ * is clear they should not be used.
  */
-void write_checkpoint(const char *fn, gmx_bool bNumberAndKeep,
-                      FILE *fplog, const t_commrec *cr,
-                      ivec domdecCells, int nppnodes,
-                      int eIntegrator, int simulation_part,
-                      gmx_bool bExpanded, int elamstats,
-                      int64_t step, double t,
-                      t_state *state, ObservablesHistory *observablesHistory);
+struct CheckpointHeaderContents
+{
+    //! Version of checkpoint file read from disk.
+    int file_version;
+    //! Version string.
+    char version[CPTSTRLEN];
+    //! Deprecated string for time.
+    char btime_UNUSED[CPTSTRLEN];
+    //! Deprecated string for user.
+    char buser_UNUSED[CPTSTRLEN];
+    //! Deprecated string for host.
+    char bhost_UNUSED[CPTSTRLEN];
+    //! Value for precision.
+    int double_prec;
+    //! Program string.
+    char fprog[CPTSTRLEN];
+    //! Time string.
+    char ftime[CPTSTRLEN];
+    //! Which integrator is in use.
+    int eIntegrator;
+    //! Which part of the simulation this is.
+    int simulation_part;
+    //! Which step the checkpoint is at.
+    int64_t step;
+    //! Current simulation time.
+    double t;
+    //! Number of nodes used for simulation,
+    int nnodes;
+    //! Domain decomposition settings?
+    ivec dd_nc;
+    //! Number of separate PME ranks.
+    int npme;
+    //! Number of atoms.
+    int natoms;
+    //! Number of temperature coupling groups.
+    int ngtc;
+    //! Number of Nose-Hoover pressure coupling chains.
+    int nnhpres;
+    //! Length of Nose-Hoover chains.
+    int nhchainlength;
+    //! Current FEP lambda state.
+    int nlambda;
+    //! Current state flags.
+    int flags_state;
+    //! Flags for kinetic energy.
+    int flags_eks;
+    //! Flags for energy history.
+    int flags_enh;
+    //! Flags for pull history.
+    int flagsPullHistory;
+    //! Flags for mystery history.
+    int flags_dfh;
+    //! Flags for AWH history.
+    int flags_awhh;
+    //! Essential dynamics states.
+    int nED;
+    //! Enum for coordinate swapping.
+    int eSwapCoords;
+    //! Whether the checkpoint was written by modular simulator.
+    bool isModularSimulatorCheckpoint = false;
+    //! Flags for constant pH code
+    int flagsConstantpH;
+};
+
+/*! \brief Low-level checkpoint writing function */
+void write_checkpoint_data(t_fileio*                         fp,
+                           CheckpointHeaderContents          headerContents,
+                           gmx_bool                          bExpanded,
+                           int                               elamstats,
+                           t_state*                          state,
+                           ConstantPH*                       constantpH,
+                           ObservablesHistory*               observablesHistory,
+                           const gmx::MdModulesNotifier&     notifier,
+                           std::vector<gmx_file_position_t>* outputfiles,
+                           gmx::WriteCheckpointDataHolder*   modularSimulatorCheckpointData);
 
 /* Loads a checkpoint from fn for run continuation.
  * Generates a fatal error on system size mismatch.
  * The master node reads the file
  * and communicates all the modified number of steps,
  * but not the state itself.
- * When bAppend is set, lock the log file and truncate the existing output
- * files so they can be appended.
- * With bAppend and bForceAppend: truncate anyhow if the system does not
- * support file locking.
  * With reproducibilityRequested warns about version, build, #ranks differences.
  */
-void load_checkpoint(const char *fn, t_fileio *logfio,
-                     const t_commrec *cr, const ivec dd_nc,
-                     t_inputrec *ir, t_state *state,
-                     gmx_bool *bReadEkin,
-                     ObservablesHistory *observablesHistory,
-                     gmx_bool bAppend, gmx_bool bForceAppend,
-                     gmx_bool reproducibilityRequested);
+void load_checkpoint(const char*                    fn,
+                     t_fileio*                      logfio,
+                     const t_commrec*               cr,
+                     const ivec                     dd_nc,
+                     t_inputrec*                    ir,
+                     t_state*                       state,
+                     ConstantPH*                    constantpH,
+                     ObservablesHistory*            observablesHistory,
+                     gmx_bool                       reproducibilityRequested,
+                     const gmx::MdModulesNotifier&  mdModulesNotifier,
+                     gmx::ReadCheckpointDataHolder* modularSimulatorCheckpointData,
+                     bool                           useModularSimulator);
 
 /* Read everything that can be stored in t_trxframe from a checkpoint file */
-void read_checkpoint_trxframe(struct t_fileio *fp, t_trxframe *fr);
+void read_checkpoint_trxframe(struct t_fileio* fp, t_trxframe* fr);
 
 /* Print the complete contents of checkpoint file fn to out */
-void list_checkpoint(const char *fn, FILE *out);
+void list_checkpoint(const char* fn, FILE* out, ConstantPH* constantpH);
 
-/* ! \brief Read simulation step and part from a checkpoint file
+/*!\brief Read simulation step and part from a checkpoint file
  *
  * Used by tune_pme to handle tuning with a checkpoint file as part of the input.
  *
@@ -104,20 +293,15 @@ void list_checkpoint(const char *fn, FILE *out);
  *
  * The output variables will both contain 0 if filename is NULL, the file
  * does not exist, or is not readable. */
-void read_checkpoint_part_and_step(const char  *filename,
-                                   int         *simulation_part,
-                                   int64_t     *step);
+void read_checkpoint_part_and_step(const char* filename, int* simulation_part, int64_t* step);
 
-/* ! \brief Read simulation part and output filenames from a checkpoint file
+/*!\brief Return header information from an open checkpoint file.
  *
  * Used by mdrun to handle restarts
  *
  * \param[in]  fp               Handle to open checkpoint file
- * \param[out] simulation_part  The part of the simulation that wrote the checkpoint
  * \param[out] outputfiles      Container of output file names from the previous run. */
-void
-read_checkpoint_simulation_part_and_filenames(struct t_fileio                  *fp,
-                                              int                              *simulation_part,
-                                              std::vector<gmx_file_position_t> *outputfiles);
+CheckpointHeaderContents
+read_checkpoint_simulation_part_and_filenames(t_fileio* fp, std::vector<gmx_file_position_t>* outputfiles);
 
 #endif

@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2010,2011,2012,2013,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2010,2011,2012,2013,2015 by the GROMACS development team.
+ * Copyright (c) 2016,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -90,8 +91,12 @@ enum ErrorCode
     eeAPIError,
     //! Range consistency check failed.
     eeRange,
-    //! Communication consistency check failed.
-    eeCommunication,
+
+    //! Parallel consistency check failed.
+    eeParallelConsistency,
+
+    //! Error specific for modular simulator.
+    eeModularSimulator,
     //!\}
 
     //! Unknown error detected.
@@ -109,7 +114,7 @@ enum ErrorCode
  *
  * This function does not throw.
  */
-const char *getErrorCodeString(int errorcode);
+const char* getErrorCodeString(int errorcode);
 
 /*!\}*/
 

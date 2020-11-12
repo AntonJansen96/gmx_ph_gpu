@@ -1,8 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2013,2014,2015,2017,2018,2019, by the GROMACS development team, led by
+# Copyright (c) 2013,2014,2015,2017,2018 by the GROMACS development team.
+# Copyright (c) 2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -160,7 +161,7 @@ for type in VerletKernelTypeDict:
     KernelsName = "{0}_simd_{1}".format(KernelNamePrefix,type)
     KernelsFileName = "{0}_simd_{1}".format(KernelFileNamePrefix,type)
     KernelsHeaderFileName = "kernels.h"
-    KernelsHeaderPathName = "gromacs/nbnxm/kernels_simd_{0}/{1}".format(type,KernelsHeaderFileName)
+    KernelsHeaderPathName = "{1}".format(type,KernelsHeaderFileName)
     KernelFunctionLookupTable = {}
     KernelDeclarations = ''
     KernelTemplate = read_kernel_template("{0}_kernel.cpp.pre".format(KernelsFileName))

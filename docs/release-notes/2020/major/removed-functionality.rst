@@ -4,7 +4,7 @@ Removed functionality
 .. Note to developers!
    Please use """"""" to underline the individual entries for fixed issues in the subfolders,
    otherwise the formatting on the webpage is messed up.
-   Also, please use the syntax :issue:`number` to reference issues on redmine, without the
+   Also, please use the syntax :issue:`number` to reference issues on GitLab, without the
    a space between the colon and number!
 
 Group cut-off scheme
@@ -13,10 +13,21 @@ Group cut-off scheme
 The group cut-off scheme has been removed. Several kinds of simulation
 that depend on it no longer work.
 
-.. TODO list those (Mark has other work incoming that does so)
+   * Simulations under vacuum conditions are not supported.
+   * User supplied tables for short-range nonbonded interactions are not supported.
+   * Switched short-range nonbonded interactions with PME are not supported. 
+   * Membrane embedding is deactivated.
+   * QMMM is not supported.
 
 :issue:`1852`
 
+Generalized reaction-field
+""""""""""""""""""""""""""
+
+This only worked correctly with the group scheme. Note that generalized
+reaction-field simulations can still be performed using standard
+reaction field and computing the dielectric constant manually.
+       
 gmx anadock
 """""""""""
 The gmx anadock tool was removed since it does not belong in gromacs

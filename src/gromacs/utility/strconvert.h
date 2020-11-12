@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -44,9 +44,13 @@
 #ifndef GMX_UTILITY_STRCONVERT_H
 #define GMX_UTILITY_STRCONVERT_H
 
+#include <algorithm>
+#include <array>
+#include <optional>
 #include <string>
 
 #include "gromacs/utility/basedefinitions.h"
+#include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/stringutil.h"
 
 namespace gmx
@@ -61,7 +65,7 @@ namespace gmx
  *
  * \throws  InvalidInputError if `str` is not recognized as a boolean value.
  */
-bool boolFromString(const char *str);
+bool boolFromString(const char* str);
 /*! \brief
  * Parses an integer from a string.
  *
@@ -69,7 +73,7 @@ bool boolFromString(const char *str);
  *
  * Also checks for overflow.
  */
-int intFromString(const char *str);
+int intFromString(const char* str);
 /*! \brief
  * Parses a 64-bit integer from a string.
  *
@@ -77,7 +81,7 @@ int intFromString(const char *str);
  *
  * Also checks for overflow.
  */
-int64_t int64FromString(const char *str);
+int64_t int64FromString(const char* str);
 /*! \brief
  * Parses a float value from a string.
  *
@@ -85,7 +89,7 @@ int64_t int64FromString(const char *str);
  *
  * Also checks for overflow.
  */
-float floatFromString(const char *str);
+float floatFromString(const char* str);
 /*! \brief
  * Parses a double value from a string.
  *
@@ -93,7 +97,7 @@ float floatFromString(const char *str);
  *
  * Also checks for overflow.
  */
-double doubleFromString(const char *str);
+double doubleFromString(const char* str);
 
 /*! \brief
  * Parses a value from a string to a given type.
@@ -104,9 +108,11 @@ double doubleFromString(const char *str);
  * The main use for this function is to write `fromString<real>(value)`,
  * but it can also be used for other types for consistency.
  */
-template <typename T> static inline T fromString(const char *str);
+template<typename T>
+static inline T fromString(const char* str);
 //! \copydoc fromString(const char *)
-template <typename T> static inline T fromString(const std::string &str)
+template<typename T>
+static inline T fromString(const std::string& str)
 {
     return fromString<T>(str.c_str());
 }
@@ -115,33 +121,49 @@ template <typename T> static inline T fromString(const std::string &str)
  * Provided for situations where overload resolution cannot easily resolve the
  * desired std::string parameter.
  */
-template <typename T> static inline T fromStdString(const std::string &str)
+template<typename T>
+static inline T fromStdString(const std::string& str)
 {
     return fromString<T>(str.c_str());
 }
 
 //! Implementation for boolean values.
-template <> inline
-bool fromString<bool>(const char *str) { return boolFromString(str); }
+template<>
+inline bool fromString<bool>(const char* str)
+{
+    return boolFromString(str);
+}
 //! Implementation for integer values.
-template <> inline
-int fromString<int>(const char *str) { return intFromString(str); }
+template<>
+inline int fromString<int>(const char* str)
+{
+    return intFromString(str);
+}
 //! Implementation for 64-bit integer values.
-template <> inline
-int64_t fromString<int64_t>(const char *str) { return int64FromString(str); }
+template<>
+inline int64_t fromString<int64_t>(const char* str)
+{
+    return int64FromString(str);
+}
 //! Implementation for float values.
-template <> inline
-float fromString<float>(const char *str) { return floatFromString(str); }
+template<>
+inline float fromString<float>(const char* str)
+{
+    return floatFromString(str);
+}
 //! Implementation for double values.
-template <> inline
-double fromString<double>(const char *str) { return doubleFromString(str); }
+template<>
+inline double fromString<double>(const char* str)
+{
+    return doubleFromString(str);
+}
 
 /*! \brief
  * Converts a boolean to a "true"/"false" string.
  *
  * Does not throw.
  */
-static inline const char *boolToString(bool value)
+static inline const char* boolToString(bool value)
 {
     return value ? "true" : "false";
 }
@@ -171,16 +193,128 @@ static inline std::string doubleToString(double t)
  * \throws std::bad_alloc if out of memory.
  * \{
  */
-static inline std::string toString(bool t) { return boolToString(t); }
-static inline std::string toString(int t) { return intToString(t); }
-static inline std::string toString(int64_t t) { return int64ToString(t); }
-static inline std::string toString(float t) { return doubleToString(t); }
-static inline std::string toString(double t) { return doubleToString(t); }
-static inline std::string toString(std::string t) { return t; }
+static inline std::string toString(bool t)
+{
+    return boolToString(t);
+}
+static inline std::string toString(int t)
+{
+    return intToString(t);
+}
+static inline std::string toString(int64_t t)
+{
+    return int64ToString(t);
+}
+static inline std::string toString(float t)
+{
+    return doubleToString(t);
+}
+static inline std::string toString(double t)
+{
+    return doubleToString(t);
+}
+static inline std::string toString(std::string t)
+{
+    return t;
+}
 //! \}
 
 //! \}
 //! \endcond
+
+/*! \brief Convert a string into an array of values.
+ *
+ * \tparam ValueType array element type to convert into
+ * \tparam NumExpectedValues number of values of the array
+ *
+ * \returns an array containing the converted string, optionally null if
+ *          the white-space stripped string is empty
+ *
+ * \throws InvalidInputError if splitting the string at whitespaces does not
+ *                           result in NumExpectedValues or zero substrings
+ *
+ * \throws InvalidInputError if conversion of any of the NumExpectedValues
+ *                           substrings of the splitted input string fails
+ *
+ * Converts a string into an array of type ValueType with exactly NumExpectedValues.
+ *
+ * No result is returned if the string is empty or contains only whitespace .
+ *
+ */
+template<typename ValueType, int NumExpectedValues>
+static inline std::optional<std::array<ValueType, NumExpectedValues>>
+parsedArrayFromInputString(const std::string& str)
+{
+    // return nullopt right away if the string is just whitespace or empty
+    {
+        const std::string& strippedString = stripString(str);
+        if (strippedString.empty())
+        {
+            return std::nullopt;
+        }
+    }
+
+    const std::vector<std::string>& valuesAsStrings = splitString(str);
+
+    // throw right away if we don't have the expected number of string entries
+    if (valuesAsStrings.size() != NumExpectedValues)
+    {
+        const std::string errorMessage =
+                "Expected empty string or string with " + intToString(NumExpectedValues)
+                + " elements to convert, but received " + intToString(valuesAsStrings.size())
+                + " elements instead.";
+        GMX_THROW(InvalidInputError(errorMessage));
+    }
+
+    // will throw if any conversion from string to value fails
+    std::array<ValueType, NumExpectedValues> valuesAsArray;
+    std::transform(std::begin(valuesAsStrings), std::end(valuesAsStrings), std::begin(valuesAsArray),
+                   [](const std::string& split) { return fromString<ValueType>(split); });
+
+    return { valuesAsArray };
+}
+
+/*! \brief Returns the input string, throwing an excpetion if the demanded
+ *         conversion to an array will not succeed.
+ *
+ * \tparam ValueType array element type to convert into
+ * \tparam NumExpectedValues number of values of the array
+ *
+ * \param[in] toConvert the string to convert
+ * \param[in] errorContextMessage the message to add to the thrown exceptions if
+ *                                conversion of the string is bound to fail at
+ *                                some point
+ * \returns the input string
+ *
+ * \throws InvalidInputError if splitting the string at whitespaces does not
+ *                           result in NumExpectedValues or zero substrings
+ *
+ * \throws InvalidInputError if conversion of any of the NumExpectedValues
+ *                           substrings of the splitted input string fails
+ *
+ * A typical use of this function would be in .mdp string option parsing
+ * where information in the .mdp file is transformed into the data that is
+ * stored in the .tpr file.
+ */
+template<typename ValueType, int NumExpectedValues>
+static inline std::string stringIdentityTransformWithArrayCheck(const std::string& toConvert,
+                                                                const std::string& errorContextMessage)
+{
+    // Attempt the conversion to an array so that the string parsing routine
+    // will throw an InvalidInputError if the string is not fit for conversion.
+    try
+    {
+        // The converted array is discarded.
+        gmx_unused const auto& val = parsedArrayFromInputString<ValueType, NumExpectedValues>(toConvert);
+    }
+    catch (const InvalidInputError& e)
+    {
+        InvalidInputError toThrow(errorContextMessage + std::string(e.what()));
+        GMX_THROW(toThrow);
+    }
+
+    return toConvert;
+}
 
 } // namespace gmx
 

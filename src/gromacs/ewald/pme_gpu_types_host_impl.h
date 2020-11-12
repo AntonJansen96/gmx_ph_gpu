@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -50,15 +50,22 @@
 #include <set>
 #include <vector>
 
-#if GMX_GPU == GMX_GPU_CUDA
-#include "gromacs/gpu_utils/gpueventsynchronizer.cuh"
-#include "gromacs/gpu_utils/gpuregiontimer.cuh"
-#elif GMX_GPU == GMX_GPU_OPENCL
-#include "gromacs/gpu_utils/gpueventsynchronizer_ocl.h"
-#include "gromacs/gpu_utils/gpuregiontimer_ocl.h"
+#if GMX_GPU_CUDA
+#    include "gromacs/gpu_utils/gpueventsynchronizer.cuh"
+#    include "gromacs/gpu_utils/gpuregiontimer.cuh"
+#elif GMX_GPU_OPENCL
+#    include "gromacs/gpu_utils/gpueventsynchronizer_ocl.h"
+#    include "gromacs/gpu_utils/gpuregiontimer_ocl.h"
 #endif
 
 #include "gromacs/timing/gpu_timing.h" // for gtPME_EVENT_COUNT
+
+#include "pme_gpu_3dfft.h"
+
+#ifndef NUMFEPSTATES
+//! Number of FEP states.
+#    define NUMFEPSTATES 2
+#endif
 
 class GpuParallel3dFft;
 
@@ -67,8 +74,16 @@ class GpuParallel3dFft;
  */
 struct PmeGpuSpecific
 {
-    /*! \brief The GPU stream where everything related to the PME happens. */
-    CommandStream pmeStream;
+    /*! \brief Constructor
+     *
+     * \param[in] deviceContext  GPU device context
+     * \param[in] pmeStream      GPU pme stream.
+     */
+    PmeGpuSpecific(const DeviceContext& deviceContext, const DeviceStream& pmeStream) :
+        deviceContext_(deviceContext),
+        pmeStream_(pmeStream)
+    {
+    }
 
     /*! \brief
      * A handle to the GPU context.
@@ -76,30 +91,35 @@ struct PmeGpuSpecific
      * but should be a constructor parameter to PmeGpu, as well as PmeGpuProgram,
      * managed by high-level code.
      */
-    Context context;
+    const DeviceContext& deviceContext_;
+
+    /*! \brief The GPU stream where everything related to the PME happens. */
+    const DeviceStream& pmeStream_;
 
     /* Synchronization events */
+    /*! \brief Triggered after the PME Force Calculations have been completed */
+    GpuEventSynchronizer pmeForcesReady;
     /*! \brief Triggered after the grid has been copied to the host (after the spreading stage). */
     GpuEventSynchronizer syncSpreadGridD2H;
 
     /* Settings which are set at the start of the run */
     /*! \brief A boolean which tells whether the complex and real grids for cu/clFFT are different or same. Currenty true. */
-    bool performOutOfPlaceFFT;
+    bool performOutOfPlaceFFT = false;
     /*! \brief A boolean which tells if the GPU timing events are enabled.
      *  False by default, can be enabled by setting the environment variable GMX_ENABLE_GPU_TIMING.
-     *  Note: will not be reliable when multiple GPU tasks are running concurrently on the same device context,
-     * as CUDA events on multiple streams are untrustworthy.
+     *  Note: will not be reliable when multiple GPU tasks are running concurrently on the same
+     * device context, as CUDA events on multiple streams are untrustworthy.
      */
-    bool                                             useTiming;
+    bool useTiming = false;
 
     //! Vector of FFT setups
-    std::vector<std::unique_ptr<GpuParallel3dFft > > fftSetup;
+    std::vector<std::unique_ptr<GpuParallel3dFft>> fftSetup;
 
     //! All the timers one might use
-    std::array<GpuRegionTimer, gtPME_EVENT_COUNT>    timingEvents;
+    std::array<GpuRegionTimer, gtPME_EVENT_COUNT> timingEvents;
 
     //! Indices of timingEvents actually used
-    std::set<size_t>                                 activeTimers;
+    std::set<size_t> activeTimers;
 
     /* GPU arrays element counts (not the arrays sizes in bytes!).
      * They might be larger than the actual meaningful data sizes.
@@ -110,37 +130,37 @@ struct PmeGpuSpecific
      * TODO: these should live in a clean buffered container type, and be refactored in the NB/cudautils as well.
      */
     /*! \brief The kernelParams.atoms.coordinates float element count (actual)*/
-    int coordinatesSize;
+    int coordinatesSize = 0;
     /*! \brief The kernelParams.atoms.coordinates float element count (reserved) */
-    int coordinatesSizeAlloc;
+    int coordinatesSizeAlloc = 0;
     /*! \brief The kernelParams.atoms.forces float element count (actual) */
-    int forcesSize;
+    int forcesSize = 0;
     /*! \brief The kernelParams.atoms.forces float element count (reserved) */
-    int forcesSizeAlloc;
+    int forcesSizeAlloc = 0;
     /*! \brief The kernelParams.atoms.gridlineIndices int element count (actual) */
-    int gridlineIndicesSize;
+    int gridlineIndicesSize = 0;
     /*! \brief The kernelParams.atoms.gridlineIndices int element count (reserved) */
-    int gridlineIndicesSizeAlloc;
+    int gridlineIndicesSizeAlloc = 0;
     /*! \brief Both the kernelParams.atoms.theta and kernelParams.atoms.dtheta float element count (actual) */
-    int splineDataSize;
+    int splineDataSize = 0;
     /*! \brief Both the kernelParams.atoms.theta and kernelParams.atoms.dtheta float element count (reserved) */
-    int splineDataSizeAlloc;
+    int splineDataSizeAlloc = 0;
     /*! \brief The kernelParams.atoms.coefficients float element count (actual) */
-    int coefficientsSize;
+    int coefficientsSize[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.atoms.coefficients float element count (reserved) */
-    int coefficientsSizeAlloc;
+    int coefficientsCapacity[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.splineValuesArray float element count (actual) */
-    int splineValuesSize;
+    int splineValuesSize[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.splineValuesArray float element count (reserved) */
-    int splineValuesSizeAlloc;
+    int splineValuesCapacity[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.realGrid float element count (actual) */
-    int realGridSize;
+    int realGridSize[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.realGrid float element count (reserved) */
-    int realGridSizeAlloc;
+    int realGridCapacity[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.fourierGrid float (not float2!) element count (actual) */
-    int complexGridSize;
+    int complexGridSize[NUMFEPSTATES] = { 0, 0 };
     /*! \brief The kernelParams.grid.fourierGrid float (not float2!) element count (reserved) */
-    int complexGridSizeAlloc;
+    int complexGridCapacity[NUMFEPSTATES] = { 0, 0 };
 };
 
 #endif

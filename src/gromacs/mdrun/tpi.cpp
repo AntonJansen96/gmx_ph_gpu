@@ -3,7 +3,8 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017 by the GROMACS development team.
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -49,7 +50,6 @@
 #include <ctime>
 
 #include <algorithm>
-
 #include <cfenv>
 
 #include "gromacs/commandline/filenm.h"
@@ -59,7 +59,6 @@
 #include "gromacs/fileio/confio.h"
 #include "gromacs/fileio/trxio.h"
 #include "gromacs/fileio/xvgr.h"
-#include "gromacs/gmxlib/chargegroup.h"
 #include "gromacs/gmxlib/conformation_utilities.h"
 #include "gromacs/gmxlib/network.h"
 #include "gromacs/gmxlib/nrnb.h"
@@ -70,18 +69,23 @@
 #include "gromacs/mdlib/energyoutput.h"
 #include "gromacs/mdlib/force.h"
 #include "gromacs/mdlib/force_flags.h"
+#include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "gromacs/mdlib/mdatoms.h"
 #include "gromacs/mdlib/tgroup.h"
 #include "gromacs/mdlib/update.h"
 #include "gromacs/mdlib/vsite.h"
 #include "gromacs/mdrunutility/printtime.h"
 #include "gromacs/mdtypes/commrec.h"
+#include "gromacs/mdtypes/forcebuffers.h"
 #include "gromacs/mdtypes/forcerec.h"
 #include "gromacs/mdtypes/group.h"
 #include "gromacs/mdtypes/inputrec.h"
+#include "gromacs/mdtypes/interaction_const.h"
 #include "gromacs/mdtypes/md_enums.h"
+#include "gromacs/mdtypes/mdatom.h"
 #include "gromacs/mdtypes/mdrunoptions.h"
 #include "gromacs/mdtypes/state.h"
+#include "gromacs/nbnxm/nbnxm.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/random/threefry.h"
 #include "gromacs/random/uniformrealdistribution.h"
@@ -95,10 +99,10 @@
 #include "gromacs/utility/logger.h"
 #include "gromacs/utility/smalloc.h"
 
-#include "integrator.h"
+#include "legacysimulator.h"
 
 //! Global max algorithm
-static void global_max(t_commrec *cr, int *n)
+static void global_max(t_commrec* cr, int* n)
 {
     int *sum, i;
 
@@ -114,7 +118,7 @@ static void global_max(t_commrec *cr, int *n)
 }
 
 //! Reallocate arrays.
-static void realloc_bins(double **bin, int *nbin, int nbin_new)
+static void realloc_bins(double** bin, int* nbin, int nbin_new)
 {
     int i;
 
@@ -129,48 +133,85 @@ static void realloc_bins(double **bin, int *nbin, int nbin_new)
     }
 }
 
+//! Computes and returns the RF exclusion energy for the last molecule starting at \p beginAtom
+static real reactionFieldExclusionCorrection(gmx::ArrayRef<const gmx::RVec> x,
+                                             const t_mdatoms&               mdatoms,
+                                             const interaction_const_t&     ic,
+                                             const int                      beginAtom)
+{
+    real energy = 0;
+
+    for (int i = beginAtom; i < mdatoms.homenr; i++)
+    {
+        const real qi = mdatoms.chargeA[i];
+        energy -= 0.5 * qi * qi * ic.c_rf;
+
+        for (int j = i + 1; j < mdatoms.homenr; j++)
+        {
+            const real qj  = mdatoms.chargeA[j];
+            const real rsq = distance2(x[i], x[j]);
+            energy += qi * qj * (ic.k_rf * rsq - ic.c_rf);
+        }
+    }
+
+    return ic.epsfac * energy;
+}
+
 namespace gmx
 {
 
 // TODO: Convert to use the nbnxm kernels by putting the system and the teset molecule on two separate search grids
-void
-Integrator::do_tpi()
+void LegacySimulator::do_tpi()
 {
-    gmx_localtop_t          top;
-    PaddedVector<gmx::RVec> f {};
-    real                    lambda, t, temp, beta, drmax, epot;
-    double                  embU, sum_embU, *sum_UgembU, V, V_all, VembU_all;
-    t_trxstatus            *status;
-    t_trxframe              rerun_fr;
-    gmx_bool                bDispCorr, bCharge, bRFExcl, bNotLastFrame, bStateChanged, bNS;
-    tensor                  force_vir, shake_vir, vir, pres;
-    int                     a_tp0, a_tp1, ngid, gid_tp, nener, e;
-    rvec                   *x_mol;
-    rvec                    mu_tot, x_init, dx, x_tp;
-    int                     nnodes, frame;
-    int64_t                 frame_step_prev, frame_step;
-    int64_t                 nsteps, stepblocksize = 0, step;
-    int64_t                 seed;
-    int                     i;
-    FILE                   *fp_tpi = nullptr;
-    char                   *ptr, *dump_pdb, **leg, str[STRLEN], str2[STRLEN];
-    double                  dbl, dump_ener;
-    gmx_bool                bCavity;
-    int                     nat_cavity  = 0, d;
-    real                   *mass_cavity = nullptr, mass_tot;
-    int                     nbin;
-    double                  invbinw, *bin, refvolshift, logV, bUlogV;
-    real                    prescorr, enercorr, dvdlcorr;
-    gmx_bool                bEnergyOutOfBounds;
-    const char             *tpid_leg[2] = {"direct", "reweighted"};
-    auto                    mdatoms     = mdAtoms->mdatoms();
+    GMX_RELEASE_ASSERT(gmx_omp_nthreads_get(emntDefault) == 1, "TPI does not support OpenMP");
+
+    gmx_localtop_t    top(top_global->ffparams);
+    gmx::ForceBuffers f;
+    real              lambda, t, temp, beta, drmax, epot;
+    double            embU, sum_embU, *sum_UgembU, V, V_all, VembU_all;
+    t_trxstatus*      status;
+    t_trxframe        rerun_fr;
+    gmx_bool          bDispCorr, bCharge, bRFExcl, bNotLastFrame, bStateChanged, bNS;
+    tensor            force_vir, shake_vir, vir, pres;
+    int               a_tp0, a_tp1, ngid, gid_tp, nener, e;
+    rvec*             x_mol;
+    rvec              mu_tot, x_init, dx;
+    int               nnodes, frame;
+    int64_t           frame_step_prev, frame_step;
+    int64_t           nsteps, stepblocksize = 0, step;
+    int64_t           seed;
+    int               i;
+    FILE*             fp_tpi = nullptr;
+    char *            ptr, *dump_pdb, **leg, str[STRLEN], str2[STRLEN];
+    double            dbl, dump_ener;
+    gmx_bool          bCavity;
+    int               nat_cavity  = 0, d;
+    real *            mass_cavity = nullptr, mass_tot;
+    int               nbin;
+    double            invbinw, *bin, refvolshift, logV, bUlogV;
+    gmx_bool          bEnergyOutOfBounds;
+    const char*       tpid_leg[2] = { "direct", "reweighted" };
+    auto              mdatoms     = mdAtoms->mdatoms();
 
     GMX_UNUSED_VALUE(outputProvider);
 
-    GMX_LOG(mdlog.info).asParagraph().
-        appendText("Note that it is planned to change the command gmx mdrun -tpi "
-                   "(and -tpic) to make the functionality available in a different "
-                   "form in a future version of GROMACS, e.g. gmx test-particle-insertion.");
+    if (EVDW_PME(inputrec->vdwtype))
+    {
+        gmx_fatal(FARGS, "Test particle insertion not implemented with LJ-PME");
+    }
+    if (haveEwaldSurfaceContribution(*inputrec))
+    {
+        gmx_fatal(FARGS,
+                  "TPI with PME currently only works in a 3D geometry with tin-foil "
+                  "boundary conditions");
+    }
+
+    GMX_LOG(mdlog.info)
+            .asParagraph()
+            .appendText(
+                    "Note that it is planned to change the command gmx mdrun -tpi "
+                    "(and -tpic) to make the functionality available in a different "
+                    "form in a future version of GROMACS, e.g. gmx test-particle-insertion.");
 
     /* Since there is no upper limit to the insertion energies,
      * we need to set an upper limit for the distribution output.
@@ -178,16 +219,11 @@ Integrator::do_tpi()
     real bU_bin_limit      = 50;
     real bU_logV_bin_limit = bU_bin_limit + 10;
 
-    if (inputrec->cutoff_scheme == ecutsVERLET)
-    {
-        gmx_fatal(FARGS, "TPI does not work (yet) with the Verlet cut-off scheme");
-    }
-
     nnodes = cr->nnodes;
 
     gmx_mtop_generate_local_top(*top_global, &top, inputrec->efep != efepNO);
 
-    SimulationGroups *groups = &top_global->groups;
+    const SimulationGroups* groups = &top_global->groups;
 
     bCavity = (inputrec->eI == eiTPIC);
     if (bCavity)
@@ -205,10 +241,9 @@ Integrator::do_tpi()
             nat_cavity = 0;
             while (sscanf(ptr, "%20lf%n", &dbl, &i) > 0)
             {
-                srenew(mass_cavity, nat_cavity+1);
+                srenew(mass_cavity, nat_cavity + 1);
                 mass_cavity[nat_cavity] = dbl;
-                fprintf(fplog, "mass[%d] = %f\n",
-                        nat_cavity+1, mass_cavity[nat_cavity]);
+                fprintf(fplog, "mass[%d] = %f\n", nat_cavity + 1, mass_cavity[nat_cavity]);
                 nat_cavity++;
                 ptr += i;
             }
@@ -223,7 +258,7 @@ Integrator::do_tpi()
        init_em(fplog,TPI,inputrec,&lambda,nrnb,mu_tot,
        state_global->box,fr,mdatoms,top,cr,nfile,fnm,NULL,NULL);*/
     /* We never need full pbc for TPI */
-    fr->ePBC = epbcXYZ;
+    fr->pbcType = PbcType::Xyz;
     /* Determine the temperature for the Boltzmann weighting */
     temp = inputrec->opts.ref_t[0];
     if (fplog)
@@ -232,15 +267,17 @@ Integrator::do_tpi()
         {
             if (inputrec->opts.ref_t[i] != temp)
             {
-                fprintf(fplog, "\nWARNING: The temperatures of the different temperature coupling groups are not identical\n\n");
-                fprintf(stderr, "\nWARNING: The temperatures of the different temperature coupling groups are not identical\n\n");
+                fprintf(fplog,
+                        "\nWARNING: The temperatures of the different temperature coupling groups "
+                        "are not identical\n\n");
+                fprintf(stderr,
+                        "\nWARNING: The temperatures of the different temperature coupling groups "
+                        "are not identical\n\n");
             }
         }
-        fprintf(fplog,
-                "\n  The temperature for test particle insertion is %.3f K\n\n",
-                temp);
+        fprintf(fplog, "\n  The temperature for test particle insertion is %.3f K\n\n", temp);
     }
-    beta = 1.0/(BOLTZ*temp);
+    beta = 1.0 / (BOLTZ * temp);
 
     /* Number of insertions per frame */
     nsteps = inputrec->nsteps;
@@ -261,10 +298,10 @@ Integrator::do_tpi()
         sscanf(dump_pdb, "%20lf", &dump_ener);
     }
 
-    atoms2md(top_global, inputrec, -1, nullptr, top_global->natoms, mdAtoms);
+    atoms2md(top_global, inputrec, -1, {}, top_global->natoms, mdAtoms);
     update_mdatoms(mdatoms, inputrec->fepvals->init_lambda);
 
-    f.resizeWithPadding(top_global->natoms);
+    f.resize(top_global->natoms);
 
     /* Print to log file  */
     walltime_accounting_start_time(walltime_accounting);
@@ -272,37 +309,67 @@ Integrator::do_tpi()
     print_start(fplog, cr, walltime_accounting, "Test Particle Insertion");
 
     /* The last charge group is the group to be inserted */
-    const t_atoms &atomsToInsert = top_global->moltype[top_global->molblock.back().type].atoms;
-    a_tp0 = top_global->natoms - atomsToInsert.nr;
-    a_tp1 = top_global->natoms;
+    const t_atoms& atomsToInsert = top_global->moltype[top_global->molblock.back().type].atoms;
+    a_tp0                        = top_global->natoms - atomsToInsert.nr;
+    a_tp1                        = top_global->natoms;
     if (debug)
     {
         fprintf(debug, "TPI atoms %d-%d\n", a_tp0, a_tp1);
     }
 
-    GMX_RELEASE_ASSERT(inputrec->rcoulomb <= inputrec->rlist && inputrec->rvdw <= inputrec->rlist, "Twin-range interactions are not supported with TPI");
+    auto x = makeArrayRef(state_global->x);
 
-    snew(x_mol, a_tp1-a_tp0);
+    if (EEL_PME(fr->ic->eeltype))
+    {
+        gmx_pme_reinit_atoms(fr->pmedata, a_tp0, nullptr, nullptr);
+    }
+
+    /* With reacion-field we have distance dependent potentials
+     * between excluded atoms, we need to add these separately
+     * for the inserted molecule.
+     */
+    real rfExclusionEnergy = 0;
+    if (EEL_RF(fr->ic->eeltype))
+    {
+        rfExclusionEnergy = reactionFieldExclusionCorrection(x, *mdatoms, *fr->ic, a_tp0);
+        if (debug)
+        {
+            fprintf(debug, "RF exclusion correction for inserted molecule: %f kJ/mol\n", rfExclusionEnergy);
+        }
+    }
+
+    snew(x_mol, a_tp1 - a_tp0);
 
     bDispCorr = (inputrec->eDispCorr != edispcNO);
     bCharge   = FALSE;
-    auto x = makeArrayRef(state_global->x);
     for (i = a_tp0; i < a_tp1; i++)
     {
         /* Copy the coordinates of the molecule to be insterted */
-        copy_rvec(x[i], x_mol[i-a_tp0]);
+        copy_rvec(x[i], x_mol[i - a_tp0]);
         /* Check if we need to print electrostatic energies */
-        bCharge |= (mdatoms->chargeA[i] != 0 ||
-                    ((mdatoms->chargeB != nullptr) && mdatoms->chargeB[i] != 0));
+        bCharge |= (mdatoms->chargeA[i] != 0
+                    || ((mdatoms->chargeB != nullptr) && mdatoms->chargeB[i] != 0));
     }
     bRFExcl = (bCharge && EEL_RF(fr->ic->eeltype));
 
-    // TODO: Calculate the center of geometry of the molecule to insert
-#if 0
-    calc_cgcm(fplog, cg_tp, cg_tp+1, &(top.cgs), state_global->x.rvec_array(), fr->cg_cm);
+    // Calculate the center of geometry of the molecule to insert
+    rvec cog = { 0, 0, 0 };
+    for (int a = a_tp0; a < a_tp1; a++)
+    {
+        rvec_inc(cog, x[a]);
+    }
+    svmul(1.0_real / (a_tp1 - a_tp0), cog, cog);
+    real molRadius = 0;
+    for (int a = a_tp0; a < a_tp1; a++)
+    {
+        molRadius = std::max(molRadius, distance2(x[a], cog));
+    }
+    molRadius = std::sqrt(molRadius);
+
+    const real maxCutoff = std::max(inputrec->rvdw, inputrec->rcoulomb);
     if (bCavity)
     {
-        if (norm(fr->cg_cm[cg_tp]) > 0.5*inputrec->rlist && fplog)
+        if (norm(cog) > 0.5 * maxCutoff && fplog)
         {
             fprintf(fplog, "WARNING: Your TPI molecule is not centered at 0,0,0\n");
             fprintf(stderr, "WARNING: Your TPI molecule is not centered at 0,0,0\n");
@@ -311,33 +378,40 @@ Integrator::do_tpi()
     else
     {
         /* Center the molecule to be inserted at zero */
-        for (i = 0; i < a_tp1-a_tp0; i++)
+        for (i = 0; i < a_tp1 - a_tp0; i++)
         {
-            rvec_dec(x_mol[i], fr->cg_cm[cg_tp]);
+            rvec_dec(x_mol[i], cog);
         }
     }
-#endif
 
     if (fplog)
     {
-        fprintf(fplog, "\nWill insert %d atoms %s partial charges\n",
-                a_tp1-a_tp0, bCharge ? "with" : "without");
+        fprintf(fplog, "\nWill insert %d atoms %s partial charges\n", a_tp1 - a_tp0,
+                bCharge ? "with" : "without");
 
-        fprintf(fplog, "\nWill insert %" PRId64 " times in each frame of %s\n",
-                nsteps, opt2fn("-rerun", nfile, fnm));
+        fprintf(fplog, "\nWill insert %" PRId64 " times in each frame of %s\n", nsteps,
+                opt2fn("-rerun", nfile, fnm));
     }
 
     if (!bCavity)
     {
         if (inputrec->nstlist > 1)
         {
-            if (drmax == 0 && a_tp1-a_tp0 == 1)
+
+            /* With the same pair list we insert in a sphere of radius rtpi  in different orientations */
+            if (drmax == 0 && a_tp1 - a_tp0 == 1)
             {
-                gmx_fatal(FARGS, "Re-using the neighborlist %d times for insertions of a single atom in a sphere of radius %f does not make sense", inputrec->nstlist, drmax);
+                gmx_fatal(FARGS,
+                          "Re-using the neighborlist %d times for insertions of a single atom in a "
+                          "sphere of radius %f does not make sense",
+                          inputrec->nstlist, drmax);
             }
             if (fplog)
             {
-                fprintf(fplog, "Will use the same neighborlist for %d insertions in a sphere of radius %f\n", inputrec->nstlist, drmax);
+                fprintf(fplog,
+                        "Will use the same neighborlist for %d insertions in a sphere of radius "
+                        "%f\n",
+                        inputrec->nstlist, drmax);
             }
         }
     }
@@ -345,17 +419,35 @@ Integrator::do_tpi()
     {
         if (fplog)
         {
-            fprintf(fplog, "Will insert randomly in a sphere of radius %f around the center of the cavity\n", drmax);
+            fprintf(fplog,
+                    "Will insert randomly in a sphere of radius %f around the center of the "
+                    "cavity\n",
+                    drmax);
         }
     }
 
-    ngid   = groups->groups[SimulationAtomGroupType::EnergyOutput].nr;
-    // TODO: Figure out which energy group to use
-#if 0
-    gid_tp = GET_CGINFO_GID(fr->cginfo[cg_tp]);
-#endif
-    gid_tp = 0;
-    nener  = 1 + ngid;
+    /* With the same pair list we insert in a sphere of radius rtpi
+     * in different orientations. We generate the pairlist with all
+     * inserted atoms located in the center of the sphere, so we need
+     * a buffer of size of the sphere and molecule radius.
+     */
+    inputrec->rlist = maxCutoff + 2 * inputrec->rtpi + 2 * molRadius;
+    fr->rlist       = inputrec->rlist;
+    fr->nbv->changePairlistRadii(inputrec->rlist, inputrec->rlist);
+
+    ngid   = groups->groups[SimulationAtomGroupType::EnergyOutput].size();
+    gid_tp = GET_CGINFO_GID(fr->cginfo[a_tp0]);
+    for (int a = a_tp0 + 1; a < a_tp1; a++)
+    {
+        if (GET_CGINFO_GID(fr->cginfo[a]) != gid_tp)
+        {
+            fprintf(fplog,
+                    "NOTE: Atoms in the molecule to insert belong to different energy groups.\n"
+                    "      Only contributions to the group of the first atom will be reported.\n");
+            break;
+        }
+    }
+    nener = 1 + ngid;
     if (bDispCorr)
     {
         nener += 1;
@@ -377,16 +469,16 @@ Integrator::do_tpi()
     /* Copy the random seed set by the user */
     seed = inputrec->ld_seed;
 
-    gmx::ThreeFry2x64<16>                rng(seed, gmx::RandomDomain::TestParticleInsertion); // 16 bits internal counter => 2^16 * 2 = 131072 values per stream
-    gmx::UniformRealDistribution<real>   dist;
+    gmx::ThreeFry2x64<16> rng(
+            seed, gmx::RandomDomain::TestParticleInsertion); // 16 bits internal counter => 2^16 * 2 = 131072 values per stream
+    gmx::UniformRealDistribution<real> dist;
 
     if (MASTER(cr))
     {
-        fp_tpi = xvgropen(opt2fn("-tpi", nfile, fnm),
-                          "TPI energies", "Time (ps)",
+        fp_tpi = xvgropen(opt2fn("-tpi", nfile, fnm), "TPI energies", "Time (ps)",
                           "(kJ mol\\S-1\\N) / (nm\\S3\\N)", oenv);
         xvgr_subtitle(fp_tpi, "f. are averages over one frame", oenv);
-        snew(leg, 4+nener);
+        snew(leg, 4 + nener);
         e = 0;
         sprintf(str, "-kT log(<Ve\\S-\\betaU\\N>/<V>)");
         leg[e++] = gmx_strdup(str);
@@ -401,7 +493,7 @@ Integrator::do_tpi()
         for (i = 0; i < ngid; i++)
         {
             sprintf(str, "f. <U\\sVdW %s\\Ne\\S-\\betaU\\N>",
-                    *(groups->groupNames[groups->groups[SimulationAtomGroupType::EnergyOutput].nm_ind[i]]));
+                    *(groups->groupNames[groups->groups[SimulationAtomGroupType::EnergyOutput][i]]));
             leg[e++] = gmx_strdup(str);
         }
         if (bDispCorr)
@@ -414,7 +506,7 @@ Integrator::do_tpi()
             for (i = 0; i < ngid; i++)
             {
                 sprintf(str, "f. <U\\sCoul %s\\Ne\\S-\\betaU\\N>",
-                        *(groups->groupNames[groups->groups[SimulationAtomGroupType::EnergyOutput].nm_ind[i]]));
+                        *(groups->groupNames[groups->groups[SimulationAtomGroupType::EnergyOutput][i]]));
                 leg[e++] = gmx_strdup(str);
             }
             if (bRFExcl)
@@ -428,8 +520,8 @@ Integrator::do_tpi()
                 leg[e++] = gmx_strdup(str);
             }
         }
-        xvgr_legend(fp_tpi, 4+nener, leg, oenv);
-        for (i = 0; i < 4+nener; i++)
+        xvgr_legend(fp_tpi, 4 + nener, leg, oenv);
+        for (i = 0; i < 4 + nener; i++)
         {
             sfree(leg[i]);
         }
@@ -446,37 +538,30 @@ Integrator::do_tpi()
     /* Avoid frame step numbers <= -1 */
     frame_step_prev = -1;
 
-    bNotLastFrame = read_first_frame(oenv, &status, opt2fn("-rerun", nfile, fnm),
-                                     &rerun_fr, TRX_NEED_X);
-    frame = 0;
+    bNotLastFrame = read_first_frame(oenv, &status, opt2fn("-rerun", nfile, fnm), &rerun_fr, TRX_NEED_X);
+    frame         = 0;
 
-    if (rerun_fr.natoms - (bCavity ? nat_cavity : 0) !=
-        mdatoms->nr - (a_tp1 - a_tp0))
+    if (rerun_fr.natoms - (bCavity ? nat_cavity : 0) != mdatoms->nr - (a_tp1 - a_tp0))
     {
-        gmx_fatal(FARGS, "Number of atoms in trajectory (%d)%s "
+        gmx_fatal(FARGS,
+                  "Number of atoms in trajectory (%d)%s "
                   "is not equal the number in the run input file (%d) "
                   "minus the number of atoms to insert (%d)\n",
-                  rerun_fr.natoms, bCavity ? " minus one" : "",
-                  mdatoms->nr, a_tp1-a_tp0);
+                  rerun_fr.natoms, bCavity ? " minus one" : "", mdatoms->nr, a_tp1 - a_tp0);
     }
 
     refvolshift = log(det(rerun_fr.box));
 
     switch (inputrec->eI)
     {
-        case eiTPI:
-            stepblocksize = inputrec->nstlist;
-            break;
-        case eiTPIC:
-            stepblocksize = 1;
-            break;
-        default:
-            gmx_fatal(FARGS, "Unknown integrator %s", ei_names[inputrec->eI]);
+        case eiTPI: stepblocksize = inputrec->nstlist; break;
+        case eiTPIC: stepblocksize = 1; break;
+        default: gmx_fatal(FARGS, "Unknown integrator %s", ei_names[inputrec->eI]);
     }
 
     while (bNotLastFrame)
     {
-        frame_step      = rerun_fr.step;
+        frame_step = rerun_fr.step;
         if (frame_step <= frame_step_prev)
         {
             /* We don't have step number in the trajectory file,
@@ -484,7 +569,7 @@ Integrator::do_tpi()
              * Ensure we have increasing step numbers, since we use
              * the step numbers as a counter for random numbers.
              */
-            frame_step  = frame_step_prev + 1;
+            frame_step = frame_step_prev + 1;
         }
         frame_step_prev = frame_step;
 
@@ -504,14 +589,23 @@ Integrator::do_tpi()
             copy_rvec(rerun_fr.x[i], x[i]);
         }
         copy_mat(rerun_fr.box, state_global->box);
+        const matrix& box = state_global->box;
 
-        V    = det(state_global->box);
+        V    = det(box);
         logV = log(V);
 
         bStateChanged = TRUE;
         bNS           = TRUE;
 
-        step = cr->nodeid*stepblocksize;
+        put_atoms_in_box(fr->pbcType, box, x);
+
+        /* Put all atoms except for the inserted ones on the grid */
+        rvec vzero       = { 0, 0, 0 };
+        rvec boxDiagonal = { box[XX][XX], box[YY][YY], box[ZZ][ZZ] };
+        nbnxn_put_on_grid(fr->nbv.get(), box, 0, vzero, boxDiagonal, nullptr, { 0, a_tp0 }, -1,
+                          fr->cginfo, x, 0, nullptr);
+
+        step = cr->nodeid * stepblocksize;
         while (step < nsteps)
         {
             /* Restart random engine using the frame and insertion step
@@ -523,7 +617,7 @@ Integrator::do_tpi()
              * wrong you will get an exception when the stream is exhausted.
              */
             rng.restart(frame_step, step);
-            dist.reset();  // erase any memory in the distribution
+            dist.reset(); // erase any memory in the distribution
 
             if (!bCavity)
             {
@@ -534,26 +628,8 @@ Integrator::do_tpi()
                     /* Generate a random position in the box */
                     for (d = 0; d < DIM; d++)
                     {
-                        x_init[d] = dist(rng)*state_global->box[d][d];
+                        x_init[d] = dist(rng) * state_global->box[d][d];
                     }
-                }
-
-                if (inputrec->nstlist == 1)
-                {
-                    copy_rvec(x_init, x_tp);
-                }
-                else
-                {
-                    /* Generate coordinates within |dx|=drmax of x_init */
-                    do
-                    {
-                        for (d = 0; d < DIM; d++)
-                        {
-                            dx[d] = (2*dist(rng) - 1)*drmax;
-                        }
-                    }
-                    while (norm2(dx) > drmax*drmax);
-                    rvec_add(x_init, dx, x_tp);
                 }
             }
             else
@@ -566,7 +642,7 @@ Integrator::do_tpi()
                     if (nat_cavity == 1)
                     {
                         /* Copy the location of the cavity */
-                        copy_rvec(rerun_fr.x[rerun_fr.natoms-1], x_init);
+                        copy_rvec(rerun_fr.x[rerun_fr.natoms - 1], x_init);
                     }
                     else
                     {
@@ -577,8 +653,8 @@ Integrator::do_tpi()
                         {
                             for (d = 0; d < DIM; d++)
                             {
-                                x_init[d] +=
-                                    mass_cavity[i]*rerun_fr.x[rerun_fr.natoms-nat_cavity+i][d];
+                                x_init[d] += mass_cavity[i]
+                                             * rerun_fr.x[rerun_fr.natoms - nat_cavity + i][d];
                             }
                             mass_tot += mass_cavity[i];
                         }
@@ -588,16 +664,49 @@ Integrator::do_tpi()
                         }
                     }
                 }
+            }
+
+            if (bNS)
+            {
+                for (int a = a_tp0; a < a_tp1; a++)
+                {
+                    x[a] = x_init;
+                }
+
+                /* Put the inserted molecule on it's own search grid */
+                nbnxn_put_on_grid(fr->nbv.get(), box, 1, x_init, x_init, nullptr, { a_tp0, a_tp1 },
+                                  -1, fr->cginfo, x, 0, nullptr);
+
+                /* TODO: Avoid updating all atoms at every bNS step */
+                fr->nbv->setAtomProperties(gmx::constArrayRefFromArray(mdatoms->typeA, mdatoms->nr),
+                                           gmx::constArrayRefFromArray(mdatoms->chargeA, mdatoms->nr),
+                                           fr->cginfo);
+
+                fr->nbv->constructPairlist(InteractionLocality::Local, top.excls, step, nrnb);
+
+                bNS = FALSE;
+            }
+
+            /* Add random displacement uniformly distributed in a sphere
+             * of radius rtpi. We don't need to do this is we generate
+             * a new center location every step.
+             */
+            rvec x_tp;
+            if (bCavity || inputrec->nstlist > 1)
+            {
                 /* Generate coordinates within |dx|=drmax of x_init */
                 do
                 {
                     for (d = 0; d < DIM; d++)
                     {
-                        dx[d] = (2*dist(rng) - 1)*drmax;
+                        dx[d] = (2 * dist(rng) - 1) * drmax;
                     }
-                }
-                while (norm2(dx) > drmax*drmax);
+                } while (norm2(dx) > drmax * drmax);
                 rvec_add(x_init, dx, x_tp);
+            }
+            else
+            {
+                copy_rvec(x_init, x_tp);
             }
 
             if (a_tp1 - a_tp0 == 1)
@@ -610,14 +719,14 @@ Integrator::do_tpi()
                 /* Copy the coordinates from the top file */
                 for (i = a_tp0; i < a_tp1; i++)
                 {
-                    copy_rvec(x_mol[i-a_tp0], x[i]);
+                    copy_rvec(x_mol[i - a_tp0], x[i]);
                 }
                 /* Rotate the molecule randomly */
-                real angleX = 2*M_PI*dist(rng);
-                real angleY = 2*M_PI*dist(rng);
-                real angleZ = 2*M_PI*dist(rng);
-                rotate_conf(a_tp1-a_tp0, state_global->x.rvec_array()+a_tp0, nullptr,
-                            angleX, angleY, angleZ);
+                real angleX = 2 * M_PI * dist(rng);
+                real angleY = 2 * M_PI * dist(rng);
+                real angleZ = 2 * M_PI * dist(rng);
+                rotate_conf(a_tp1 - a_tp0, state_global->x.rvec_array() + a_tp0, nullptr, angleX,
+                            angleY, angleZ);
                 /* Shift to the insertion location */
                 for (i = a_tp0; i < a_tp1; i++)
                 {
@@ -625,24 +734,16 @@ Integrator::do_tpi()
                 }
             }
 
+            /* Note: NonLocal refers to the inserted molecule */
+            fr->nbv->convertCoordinates(AtomLocality::NonLocal, false, x);
+
             /* Clear some matrix variables  */
             clear_mat(force_vir);
             clear_mat(shake_vir);
             clear_mat(vir);
             clear_mat(pres);
 
-            /* Set the center of geometry mass of the test molecule */
-            // TODO: Compute and set the COG
-#if 0
-            copy_rvec(x_init, fr->cg_cm[top.cgs.nr-1]);
-#endif
-
-            /* Calc energy (no forces) on new positions.
-             * Since we only need the intermolecular energy
-             * and the RF exclusion terms of the inserted molecule occur
-             * within a single charge group we can pass NULL for the graph.
-             * This also avoids shifts that would move charge groups
-             * out of the box. */
+            /* Calc energy (no forces) on new positions. */
             /* Make do_force do a single node force calculation */
             cr->nnodes = 1;
 
@@ -652,32 +753,37 @@ Integrator::do_tpi()
             // might raise, then restore the old behaviour.
             std::fenv_t floatingPointEnvironment;
             std::feholdexcept(&floatingPointEnvironment);
-            do_force(fplog, cr, ms, inputrec, nullptr, nullptr, imdSession,
-                     pull_work,
-                     step, nrnb, wcycle, &top,
-                     state_global->box, state_global->x.arrayRefWithPadding(), &state_global->hist,
-                     f.arrayRefWithPadding(), force_vir, mdatoms, enerd, fcd,
-                     state_global->lambda,
-                     nullptr, fr, ppForceWorkload, nullptr, mu_tot, t, nullptr,
-                     GMX_FORCE_NONBONDED | GMX_FORCE_ENERGY |
-                     (bNS ? GMX_FORCE_DYNAMICBOX | GMX_FORCE_NS : 0) |
-                     (bStateChanged ? GMX_FORCE_STATECHANGED : 0),
+            do_force(fplog, cr, ms, inputrec, nullptr, nullptr, imdSession, pull_work, step, nrnb,
+                     wcycle, &top, state_global->box, state_global->x.arrayRefWithPadding(),
+                     &state_global->hist, &f.view(), force_vir, mdatoms, enerd,
+                     state_global->lambda, fr, runScheduleWork, nullptr, mu_tot, t, nullptr,
+                     GMX_FORCE_NONBONDED | GMX_FORCE_ENERGY | (bStateChanged ? GMX_FORCE_STATECHANGED : 0),
                      DDBalanceRegionHandler(nullptr));
             std::feclearexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
             std::feupdateenv(&floatingPointEnvironment);
 
             cr->nnodes    = nnodes;
             bStateChanged = FALSE;
-            bNS           = FALSE;
 
-            /* Calculate long range corrections to pressure and energy */
-            calc_dispcorr(inputrec, fr, state_global->box,
-                          lambda, pres, vir, &prescorr, &enercorr, &dvdlcorr);
-            /* figure out how to rearrange the next 4 lines MRS 8/4/2009 */
-            enerd->term[F_DISPCORR]  = enercorr;
-            enerd->term[F_EPOT]     += enercorr;
-            enerd->term[F_PRES]     += prescorr;
-            enerd->term[F_DVDL_VDW] += dvdlcorr;
+            if (fr->dispersionCorrection)
+            {
+                /* Calculate long range corrections to pressure and energy */
+                const DispersionCorrection::Correction correction =
+                        fr->dispersionCorrection->calculate(state_global->box, lambda);
+                /* figure out how to rearrange the next 4 lines MRS 8/4/2009 */
+                enerd->term[F_DISPCORR] = correction.energy;
+                enerd->term[F_EPOT] += correction.energy;
+                enerd->term[F_PRES] += correction.pressure;
+                enerd->term[F_DVDL] += correction.dvdl;
+            }
+            else
+            {
+                enerd->term[F_DISPCORR] = 0;
+            }
+            if (EEL_RF(fr->ic->eeltype))
+            {
+                enerd->term[F_EPOT] += rfExclusionEnergy;
+            }
 
             epot               = enerd->term[F_EPOT];
             bEnergyOutOfBounds = FALSE;
@@ -704,37 +810,37 @@ Integrator::do_tpi()
             {
                 if (debug)
                 {
-                    fprintf(debug, "\n  time %.3f, step %d: non-finite energy %f, using exp(-bU)=0\n", t, static_cast<int>(step), epot);
+                    fprintf(debug,
+                            "\n  time %.3f, step %d: non-finite energy %f, using exp(-bU)=0\n", t,
+                            static_cast<int>(step), epot);
                 }
                 embU = 0;
             }
             else
             {
                 // Exponent argument is fine in SP range, but output can be in DP range
-                embU      = exp(static_cast<double>(-beta*epot));
+                embU = exp(static_cast<double>(-beta * epot));
                 sum_embU += embU;
                 /* Determine the weighted energy contributions of each energy group */
-                e                = 0;
-                sum_UgembU[e++] += epot*embU;
+                e = 0;
+                sum_UgembU[e++] += epot * embU;
                 if (fr->bBHAM)
                 {
                     for (i = 0; i < ngid; i++)
                     {
-                        sum_UgembU[e++] +=
-                            enerd->grpp.ener[egBHAMSR][GID(i, gid_tp, ngid)]*embU;
+                        sum_UgembU[e++] += enerd->grpp.ener[egBHAMSR][GID(i, gid_tp, ngid)] * embU;
                     }
                 }
                 else
                 {
                     for (i = 0; i < ngid; i++)
                     {
-                        sum_UgembU[e++] +=
-                            enerd->grpp.ener[egLJSR][GID(i, gid_tp, ngid)]*embU;
+                        sum_UgembU[e++] += enerd->grpp.ener[egLJSR][GID(i, gid_tp, ngid)] * embU;
                     }
                 }
                 if (bDispCorr)
                 {
-                    sum_UgembU[e++] += enerd->term[F_DISPCORR]*embU;
+                    sum_UgembU[e++] += enerd->term[F_DISPCORR] * embU;
                 }
                 if (bCharge)
                 {
@@ -744,90 +850,87 @@ Integrator::do_tpi()
                     }
                     if (bRFExcl)
                     {
-                        sum_UgembU[e++] += enerd->term[F_RF_EXCL]*embU;
+                        sum_UgembU[e++] += rfExclusionEnergy * embU;
                     }
                     if (EEL_FULL(fr->ic->eeltype))
                     {
-                        sum_UgembU[e++] += enerd->term[F_COUL_RECIP]*embU;
+                        sum_UgembU[e++] += enerd->term[F_COUL_RECIP] * embU;
                     }
                 }
             }
 
-            if (embU == 0 || beta*epot > bU_bin_limit)
+            if (embU == 0 || beta * epot > bU_bin_limit)
             {
                 bin[0]++;
             }
             else
             {
-                i = gmx::roundToInt((bU_logV_bin_limit
-                                     - (beta*epot - logV + refvolshift))*invbinw);
+                i = gmx::roundToInt((bU_logV_bin_limit - (beta * epot - logV + refvolshift)) * invbinw);
                 if (i < 0)
                 {
                     i = 0;
                 }
                 if (i >= nbin)
                 {
-                    realloc_bins(&bin, &nbin, i+10);
+                    realloc_bins(&bin, &nbin, i + 10);
                 }
                 bin[i]++;
             }
 
             if (debug)
             {
-                fprintf(debug, "TPI %7d %12.5e %12.5f %12.5f %12.5f\n",
-                        static_cast<int>(step), epot, x_tp[XX], x_tp[YY], x_tp[ZZ]);
+                fprintf(debug, "TPI %7d %12.5e %12.5f %12.5f %12.5f\n", static_cast<int>(step),
+                        epot, x_tp[XX], x_tp[YY], x_tp[ZZ]);
             }
 
             if (dump_pdb && epot <= dump_ener)
             {
                 sprintf(str, "t%g_step%d.pdb", t, static_cast<int>(step));
                 sprintf(str2, "t: %f step %d ener: %f", t, static_cast<int>(step), epot);
-                write_sto_conf_mtop(str, str2, top_global, state_global->x.rvec_array(), state_global->v.rvec_array(),
-                                    inputrec->ePBC, state_global->box);
+                write_sto_conf_mtop(str, str2, top_global, state_global->x.rvec_array(),
+                                    state_global->v.rvec_array(), inputrec->pbcType, state_global->box);
             }
 
             step++;
-            if ((step/stepblocksize) % cr->nnodes != cr->nodeid)
+            if ((step / stepblocksize) % cr->nnodes != cr->nodeid)
             {
                 /* Skip all steps assigned to the other MPI ranks */
-                step += (cr->nnodes - 1)*stepblocksize;
+                step += (cr->nnodes - 1) * stepblocksize;
             }
         }
 
         if (PAR(cr))
         {
             /* When running in parallel sum the energies over the processes */
-            gmx_sumd(1,    &sum_embU, cr);
+            gmx_sumd(1, &sum_embU, cr);
             gmx_sumd(nener, sum_UgembU, cr);
         }
 
         frame++;
-        V_all     += V;
-        VembU_all += V*sum_embU/nsteps;
+        V_all += V;
+        VembU_all += V * sum_embU / nsteps;
 
         if (fp_tpi)
         {
-            if (mdrunOptions.verbose || frame%10 == 0 || frame < 10)
+            if (mdrunOptions.verbose || frame % 10 == 0 || frame < 10)
             {
-                fprintf(stderr, "mu %10.3e <mu> %10.3e\n",
-                        -log(sum_embU/nsteps)/beta, -log(VembU_all/V_all)/beta);
+                fprintf(stderr, "mu %10.3e <mu> %10.3e\n", -log(sum_embU / nsteps) / beta,
+                        -log(VembU_all / V_all) / beta);
             }
 
-            fprintf(fp_tpi, "%10.3f %12.5e %12.5e %12.5e %12.5e",
-                    t,
-                    VembU_all == 0 ? 20/beta : -log(VembU_all/V_all)/beta,
-                    sum_embU == 0  ? 20/beta : -log(sum_embU/nsteps)/beta,
-                    sum_embU/nsteps, V);
+            fprintf(fp_tpi, "%10.3f %12.5e %12.5e %12.5e %12.5e", t,
+                    VembU_all == 0 ? 20 / beta : -log(VembU_all / V_all) / beta,
+                    sum_embU == 0 ? 20 / beta : -log(sum_embU / nsteps) / beta, sum_embU / nsteps, V);
             for (e = 0; e < nener; e++)
             {
-                fprintf(fp_tpi, " %12.5e", sum_UgembU[e]/nsteps);
+                fprintf(fp_tpi, " %12.5e", sum_UgembU[e] / nsteps);
             }
             fprintf(fp_tpi, "\n");
             fflush(fp_tpi);
         }
 
         bNotLastFrame = read_next_frame(oenv, status, &rerun_fr);
-    }   /* End of the loop  */
+    } /* End of the loop  */
     walltime_accounting_end_time(walltime_accounting);
 
     close_trx(status);
@@ -840,13 +943,15 @@ Integrator::do_tpi()
     if (fplog != nullptr)
     {
         fprintf(fplog, "\n");
-        fprintf(fplog, "  <V>  = %12.5e nm^3\n", V_all/frame);
-        const double mu = -log(VembU_all/V_all)/beta;
+        fprintf(fplog, "  <V>  = %12.5e nm^3\n", V_all / frame);
+        const double mu = -log(VembU_all / V_all) / beta;
         fprintf(fplog, "  <mu> = %12.5e kJ/mol\n", mu);
 
         if (!std::isfinite(mu))
         {
-            fprintf(fplog, "\nThe computed chemical potential is not finite - consider increasing the number of steps and/or the number of frames to insert into.\n");
+            fprintf(fplog,
+                    "\nThe computed chemical potential is not finite - consider increasing the "
+                    "number of steps and/or the number of frames to insert into.\n");
         }
     }
 
@@ -861,19 +966,16 @@ Integrator::do_tpi()
     }
     if (MASTER(cr))
     {
-        fp_tpi = xvgropen(opt2fn("-tpid", nfile, fnm),
-                          "TPI energy distribution",
+        fp_tpi = xvgropen(opt2fn("-tpid", nfile, fnm), "TPI energy distribution",
                           "\\betaU - log(V/<V>)", "count", oenv);
         sprintf(str, "number \\betaU > %g: %9.3e", bU_bin_limit, bin[0]);
         xvgr_subtitle(fp_tpi, str, oenv);
         xvgr_legend(fp_tpi, 2, tpid_leg, oenv);
-        for (i = nbin-1; i > 0; i--)
+        for (i = nbin - 1; i > 0; i--)
         {
-            bUlogV = -i/invbinw + bU_logV_bin_limit - refvolshift + log(V_all/frame);
-            fprintf(fp_tpi, "%6.2f %10d %12.5e\n",
-                    bUlogV,
-                    roundToInt(bin[i]),
-                    bin[i]*exp(-bUlogV)*V_all/VembU_all);
+            bUlogV = -i / invbinw + bU_logV_bin_limit - refvolshift + log(V_all / frame);
+            fprintf(fp_tpi, "%6.2f %10d %12.5e\n", bUlogV, roundToInt(bin[i]),
+                    bin[i] * exp(-bUlogV) * V_all / VembU_all);
         }
         xvgrclose(fp_tpi);
     }
@@ -881,7 +983,7 @@ Integrator::do_tpi()
 
     sfree(sum_UgembU);
 
-    walltime_accounting_set_nsteps_done(walltime_accounting, frame*inputrec->nsteps);
+    walltime_accounting_set_nsteps_done(walltime_accounting, frame * inputrec->nsteps);
 }
 
 } // namespace gmx

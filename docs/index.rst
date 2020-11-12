@@ -2,7 +2,9 @@
 Welcome to the |Gromacs| documentation!
 =======================================
 
-..  TODO : consolidate at least some of the material in the
+..  todo::
+
+    Consolidate at least some of the material in the
     Documentation links below into the new user guide, along with all
     of http://www.gromacs.org/Documentation/Cut-off_schemes,
     http://www.gromacs.org/Documentation/Acceleration_and_parallelization
@@ -22,6 +24,8 @@ Welcome to the |Gromacs| documentation!
            user-guide/index
            how-to/index
            reference-manual/index
+           gmxapi/index
+	   nblib/index
            dev-manual/index
         
         ==================
@@ -42,6 +46,8 @@ Welcome to the |Gromacs| documentation!
             user-guide/index
             how-to/index
             reference-manual/index
+            gmxapi/index
+	    nblib/index
             dev-manual/index
 
 

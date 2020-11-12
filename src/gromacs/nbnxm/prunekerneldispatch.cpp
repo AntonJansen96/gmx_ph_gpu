@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -37,26 +37,26 @@
 
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "gromacs/nbnxm/nbnxm.h"
+#include "gromacs/timing/wallcycle.h"
 #include "gromacs/utility/gmxassert.h"
 
 #include "clusterdistancekerneltype.h"
+#include "nbnxm_gpu.h"
+#include "nbnxm_simd.h"
 #include "pairlistset.h"
 #include "pairlistsets.h"
 #include "kernels_reference/kernel_ref_prune.h"
 #include "kernels_simd_2xmm/kernel_prune.h"
 #include "kernels_simd_4xm/kernel_prune.h"
 
-void
-PairlistSets::dispatchPruneKernel(const Nbnxm::InteractionLocality  iLocality,
-                                  const nbnxn_atomdata_t           *nbat,
-                                  const rvec                       *shift_vec)
+void PairlistSets::dispatchPruneKernel(const gmx::InteractionLocality iLocality,
+                                       const nbnxn_atomdata_t*        nbat,
+                                       const rvec*                    shift_vec)
 {
     pairlistSet(iLocality).dispatchPruneKernel(nbat, shift_vec);
 }
 
-void
-PairlistSet::dispatchPruneKernel(const nbnxn_atomdata_t  *nbat,
-                                 const rvec              *shift_vec)
+void PairlistSet::dispatchPruneKernel(const nbnxn_atomdata_t* nbat, const rvec* shift_vec)
 {
     const real rlistInner = params_.rlistInner;
 
@@ -69,37 +69,45 @@ PairlistSet::dispatchPruneKernel(const nbnxn_atomdata_t  *nbat,
 #pragma omp parallel for schedule(static) num_threads(nthreads)
     for (int i = 0; i < nthreads; i++)
     {
-        NbnxnPairlistCpu *nbl = &cpuLists_[i];
+        NbnxnPairlistCpu* nbl = &cpuLists_[i];
 
         switch (getClusterDistanceKernelType(params_.pairlistType, *nbat))
         {
+#ifdef GMX_NBNXN_SIMD_4XN
             case ClusterDistanceKernelType::CpuSimd_4xM:
                 nbnxn_kernel_prune_4xn(nbl, nbat, shift_vec, rlistInner);
                 break;
+#endif
+#ifdef GMX_NBNXN_SIMD_2XNN
             case ClusterDistanceKernelType::CpuSimd_2xMM:
                 nbnxn_kernel_prune_2xnn(nbl, nbat, shift_vec, rlistInner);
                 break;
+#endif
             case ClusterDistanceKernelType::CpuPlainC:
                 nbnxn_kernel_prune_ref(nbl, nbat, shift_vec, rlistInner);
                 break;
-            default:
-                GMX_RELEASE_ASSERT(false, "kernel type not handled (yet)");
+            default: GMX_RELEASE_ASSERT(false, "kernel type not handled (yet)");
         }
     }
 }
 
-void
-nonbonded_verlet_t::dispatchPruneKernelCpu(const Nbnxm::InteractionLocality  iLocality,
-                                           const rvec                       *shift_vec)
+void nonbonded_verlet_t::dispatchPruneKernelCpu(const gmx::InteractionLocality iLocality, const rvec* shift_vec)
 {
     pairlistSets_->dispatchPruneKernel(iLocality, nbat.get(), shift_vec);
 }
 
 void nonbonded_verlet_t::dispatchPruneKernelGpu(int64_t step)
 {
-    const bool stepIsEven = (pairlistSets().numStepsWithPairlist(step) % 2 == 0);
+    wallcycle_start_nocount(wcycle_, ewcLAUNCH_GPU);
+    wallcycle_sub_start_nocount(wcycle_, ewcsLAUNCH_GPU_NONBONDED);
 
-    Nbnxm::gpu_launch_kernel_pruneonly(gpu_nbv,
-                                       stepIsEven ? Nbnxm::InteractionLocality::Local : Nbnxm::InteractionLocality::NonLocal,
-                                       pairlistSets().params().numRollingPruningParts);
+    const bool stepIsEven =
+            (pairlistSets().numStepsWithPairlist(step) % (2 * pairlistSets().params().mtsFactor) == 0);
+
+    Nbnxm::gpu_launch_kernel_pruneonly(
+            gpu_nbv, stepIsEven ? gmx::InteractionLocality::Local : gmx::InteractionLocality::NonLocal,
+            pairlistSets().params().numRollingPruningParts);
+
+    wallcycle_sub_stop(wcycle_, ewcsLAUNCH_GPU_NONBONDED);
+    wallcycle_stop(wcycle_, ewcLAUNCH_GPU);
 }

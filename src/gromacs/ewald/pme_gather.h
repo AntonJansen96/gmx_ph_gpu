@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -35,28 +35,26 @@
 #ifndef GMX_EWALD_PME_GATHER_H
 #define GMX_EWALD_PME_GATHER_H
 
+#include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
 
-#include "pme_internal.h"
+class PmeAtomComm;
+struct gmx_pme_t;
+struct splinedata_t;
 
-void
-gather_f_bsplines(const struct gmx_pme_t *pme, const real *grid,
-                  gmx_bool bClearF, const pme_atomcomm_t *atc,
-                  const splinedata_t *spline,
-                  real scale);
-
-/* Returns the PME mesh energy for all atoms in \p atc */
-real
-gather_energy_bsplines(const gmx_pme_t      &pme,
-                       const real           *grid,
-                       const pme_atomcomm_t &atc);
+void gather_f_bsplines(const struct gmx_pme_t* pme,
+                       const real*             grid,
+                       gmx_bool                bClearF,
+                       const PmeAtomComm*      atc,
+                       const splinedata_t*     spline,
+                       real                    scale);
 
 /* Returns the PME mesh potential at the atom with spline index \p splineIndex */
-real
-gather_potential_bsplines(const gmx_pme_t      &pme,
-                          const real           *grid,
-                          const pme_atomcomm_t &atc,
-                          const splinedata_t   &spline,
-                          int                   splineIndex);
+real gather_potential_bsplines(const gmx_pme_t&    pme,
+                               const real*         grid,
+                               const PmeAtomComm&  atc,
+                               const splinedata_t& spline,
+                               int                 splineIndex);
+real gather_energy_bsplines(const gmx_pme_t& pme, const real* grid, const PmeAtomComm& atc);
 
 #endif

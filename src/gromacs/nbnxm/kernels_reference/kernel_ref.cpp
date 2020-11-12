@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016 by the GROMACS development team.
+ * Copyright (c) 2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -54,21 +55,21 @@
 /* Analytical reaction-field kernels */
 #define CALC_COUL_RF
 #define LJ_CUT
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_CUT
 #define LJ_FORCE_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_FORCE_SWITCH
 #define LJ_POT_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_POT_SWITCH
 #define LJ_EWALD
 #define LJ_CUT
 #define LJ_EWALD_COMB_GEOM
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_GEOM
 #define LJ_EWALD_COMB_LB
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_LB
 #undef LJ_CUT
 #undef LJ_EWALD
@@ -78,42 +79,42 @@
 /* Tabulated exclusion interaction electrostatics kernels */
 #define CALC_COUL_TAB
 #define LJ_CUT
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_CUT
 #define LJ_FORCE_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_FORCE_SWITCH
 #define LJ_POT_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_POT_SWITCH
 #define LJ_EWALD
 #define LJ_CUT
 #define LJ_EWALD_COMB_GEOM
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_GEOM
 #define LJ_EWALD_COMB_LB
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_LB
 #undef LJ_CUT
 #undef LJ_EWALD
 /* Twin-range cut-off kernels */
 #define VDW_CUTOFF_CHECK
 #define LJ_CUT
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_CUT
 #define LJ_FORCE_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_FORCE_SWITCH
 #define LJ_POT_SWITCH
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_POT_SWITCH
 #define LJ_EWALD
 #define LJ_CUT
 #define LJ_EWALD_COMB_GEOM
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_GEOM
 #define LJ_EWALD_COMB_LB
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_includes.h"
+#include "kernel_ref_includes.h"
 #undef LJ_EWALD_COMB_LB
 #undef LJ_CUT
 #undef LJ_EWALD

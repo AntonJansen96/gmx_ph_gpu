@@ -85,8 +85,14 @@ the options for obtaining the force field parameters are:
 * search the primary literature for publications for parameters for the
   residue that are consistent with the force field that is being used.
 
-.. TODO Once you have determined the parameters and topology for your residue, see
-   :ref:`adding a residue to a force field <gmx-add-new-residue>` for instructions on how to proceed.
+..  todo:: gmx-add-new-residue doc target
+
+    Need gmx-add-new-residue doc target.
+
+    .. code-block:: none
+
+        Once you have determined the parameters and topology for your residue, see
+        :ref:`adding a residue to a force field <gmx-add-new-residue>` for instructions on how to proceed.
 
 Long bonds and/or missing atoms
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -272,11 +278,8 @@ If the charge is already close to an integer, then the difference is caused by
 Note for PME users: It is possible to use a uniform neutralizing background
 charge in PME to compensate for a system with a net background charge.
 This may however, especially for non-homogeneous systems, lead to unwanted artifacts, as
-shown in `Hub, J. S., de Groot, B. L., Grubmüller, H. & Groenhof, G. Quantifying
-artifacts in Ewald simulations of inhomogeneous systems with a net charge.
-*J. Chem. Theory Comput.* **10**, 381–390 (2014) <http://pubs.acs.org/doi/abs/10.1021/ct400626b>`.
-Nevertheless, it is a standard
-practice to actually add counter-ions to make the system net neutral.
+shown in \ :ref:`181 <refGroenhofEwaldArtefact>` (http://pubs.acs.org/doi/abs/10.1021/ct400626b).
+Nevertheless, it is a standard practice to actually add counter-ions to make the system net neutral.
 
 Incorrect number of parameters
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

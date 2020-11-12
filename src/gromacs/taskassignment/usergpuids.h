@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -49,12 +49,13 @@
 
 #include <cstddef>
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "gromacs/utility/arrayref.h"
 
-struct gmx_gpu_info_t;
+struct DeviceInformation;
 
 namespace gmx
 {
@@ -68,14 +69,39 @@ namespace gmx
  *                           comma is accceptable (and required to specify a
  *                           single ID that is larger than 9).
  *
- * \returns  A vector of unique list of GPU IDs.
+ * \returns  A vector of unique GPU IDs.
  *
  * \throws   std::bad_alloc     If out of memory.
  *           InvalidInputError  If an invalid character is found (ie not a digit or ',') or if
  *                              identifiers are duplicated in the specifier list.
  */
-std::vector<int>
-parseUserGpuIdString(const std::string &gpuIdString);
+std::vector<int> parseUserGpuIdString(const std::string& gpuIdString);
+
+/*! \brief Implement GPU ID selection by returning the available GPU
+ * IDs on this physical node that are compatible.
+ *
+ * If the string supplied by the user is empty, then return the IDs of
+ * all compatible GPUs on this physical node. Otherwise, check the
+ * user specified compatible GPUs and return their IDs.
+ *
+ * \param[in]  deviceInfoList         Information on the GPUs on this physical node.
+ * \param[in]  gpuIdsAvailableString  String like "013" or "0,1,3" typically
+ *                                    supplied by the user to mdrun -gpu_id.
+ *                                    Must contain only unique decimal digits, or only decimal
+ *                                    digits separated by comma delimiters. A terminal
+ *                                    comma is accceptable (and required to specify a
+ *                                    single ID that is larger than 9).
+ *
+ * \returns  A vector of unique compatible GPU IDs on this physical node.
+ *
+ * \throws   std::bad_alloc     If out of memory.
+ *           InvalidInputError  If an invalid character is found (ie not a digit or ',') or if
+ *                              identifiers are duplicated in the specifier list.
+ *           InvalidInputError  If gpuIdsAvailableString specifies GPU IDs that are
+ *                              not compatible.
+ */
+std::vector<int> makeGpuIdsToUse(const std::vector<std::unique_ptr<DeviceInformation>>& deviceInfoList,
+                                 const std::string& gpuIdsAvailableString);
 
 /*! \brief Parse a GPU ID specifier string into a container describing device ID to task mapping.
  *
@@ -91,9 +117,7 @@ parseUserGpuIdString(const std::string &gpuIdString);
  * \throws   std::bad_alloc     If out of memory.
  *           InvalidInputError  If an invalid character is found (ie not a digit or ',').
  */
-std::vector<int>
-parseUserTaskAssignmentString(const std::string &gpuIdString);
-
+std::vector<int> parseUserTaskAssignmentString(const std::string& gpuIdString);
 
 
 /*! \brief Make a vector containing \c numGpuTasks IDs of the IDs found in \c compatibleGpus.
@@ -103,9 +127,7 @@ parseUserTaskAssignmentString(const std::string &gpuIdString);
  * \returns A sorted vector of IDs of compatible vectors, whose
  * length matches that of the number of GPU tasks required.
  */
-std::vector<int>
-makeGpuIds(ArrayRef<const int> compatibleGpus,
-           size_t              numGpuTasks);
+std::vector<int> makeGpuIds(ArrayRef<const int> compatibleGpus, size_t numGpuTasks);
 
 /*! \brief Convert a container of GPU deviced IDs to a string that
  * can be used by gmx tune_pme as input to mdrun -gputasks.
@@ -122,8 +144,7 @@ makeGpuIds(ArrayRef<const int> compatibleGpus,
  *
  * \throws   std::bad_alloc     If out of memory.
  */
-std::string
-makeGpuIdString(const std::vector<int> &gpuIds, int totalNumberOfTasks);
+std::string makeGpuIdString(const std::vector<int>& gpuIds, int totalNumberOfTasks);
 
 /*! \brief Check that all user-selected GPUs are compatible.
  *
@@ -144,17 +165,17 @@ makeGpuIdString(const std::vector<int> &gpuIds, int totalNumberOfTasks);
  * infrastructure to do a good job of coordinating error messages and
  * behaviour across MPMD ranks and multiple simulations.
  *
- * \param[in]   gpu_info        Information detected about GPUs
+ * \param[in]   deviceInfoList  Information on the GPUs on this physical node.
  * \param[in]   compatibleGpus  Vector of GPUs that are compatible
  * \param[in]   gpuIds          The GPU IDs selected by the user.
  *
  * \throws  std::bad_alloc          If out of memory
  *          InconsistentInputError  If the assigned GPUs are not valid
  */
-void checkUserGpuIds(const gmx_gpu_info_t   &gpu_info,
-                     const std::vector<int> &compatibleGpus,
-                     const std::vector<int> &gpuIds);
+void checkUserGpuIds(const std::vector<std::unique_ptr<DeviceInformation>>& deviceInfoList,
+                     const std::vector<int>&                                compatibleGpus,
+                     const std::vector<int>&                                gpuIds);
 
-}  // namespace gmx
+} // namespace gmx
 
 #endif

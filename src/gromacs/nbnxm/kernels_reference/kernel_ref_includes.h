@@ -38,20 +38,17 @@
  * outer and inner loops, given a Coulomb and VdW treatment.
  */
 
-
 /* Include the force only kernels */
-#define CALC_ENERGIES  0
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_outer.h"
-#undef CALC_ENERGIES
+#include "kernel_ref_outer.h"
 
 /* Include the force+energy kernels */
-#define CALC_ENERGIES  1
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_outer.h"
+#define CALC_ENERGIES
+#include "kernel_ref_outer.h"
 #undef CALC_ENERGIES
 
 /* Include the force+energygroups kernels */
-#define CALC_ENERGIES  1
+#define CALC_ENERGIES
 #define ENERGY_GROUPS
-#include "gromacs/nbnxm/kernels_reference/kernel_ref_outer.h"
+#include "kernel_ref_outer.h"
 #undef ENERGY_GROUPS
 #undef CALC_ENERGIES

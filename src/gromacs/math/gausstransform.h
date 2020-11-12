@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -45,18 +45,17 @@
 
 #include <vector>
 
+#include "gromacs/math/multidimarray.h"
 #include "gromacs/math/vectypes.h"
 #include "gromacs/mdspan/extensions.h"
 #include "gromacs/mdspan/mdspan.h"
-#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/classhelpers.h"
 #include "gromacs/utility/real.h"
 
-#include "multidimarray.h"
-
 namespace gmx
 {
-
+template<typename>
+class ArrayRef;
 /*! \internal
  * \brief Provide result of Gaussian function evaluation on a one-dimensional lattice.
  *
@@ -73,55 +72,56 @@ namespace gmx
  */
 class GaussianOn1DLattice
 {
-    public:
-        /*! \brief Construct Gaussian spreader with spreading range and Gaussian width.
-         *
-         * Spread weights are distributed over a non-periodic lattice of length
-         * 2*numGridPointsForSpreadingHalfWidth+1. The lattice comprises a center point and
-         * spreadDistance points to the left and to the right.
-         *
-         * \note There is a maximum spreading width
-         *
-         * \param[in] numGridPointsForSpreadingHalfWidth maximum distance in number of gridpoints from 0
-         * \param[in] sigma Gaussian width.
-         */
-        GaussianOn1DLattice(int numGridPointsForSpreadingHalfWidth, real sigma);
-        ~GaussianOn1DLattice();
-        //! Copy constructor
-        GaussianOn1DLattice(const GaussianOn1DLattice &other);
-        //! Copy assignment
-        GaussianOn1DLattice &operator=(const GaussianOn1DLattice &other);
-        //! Move constructor
-        GaussianOn1DLattice(GaussianOn1DLattice &&other) noexcept;
-        //! Move assignment
-        GaussianOn1DLattice &operator=(GaussianOn1DLattice &&other) noexcept;
-        /*! \brief Spreads weight onto grid points in one dimension.
-         *
-         *
-         *            .            :            |            :            .
-         *            o            o            o            o            o
-         *                                  O---|
-         *                          latticeOffset
-         * O - atom position
-         * o - lattice positions
-         * . : | spreading value at grid points.
-         *
-         * \note Highest numerical accuracy is achieved when the spreading
-         *       with offset to the nearest lattice coordinated < 0.5
-         *
-         * Spreading on lattice coordinate \f$x_i\f$
-         * \f[
-         *      f(x_i) = \frac{\mathrm{amplitude}}{\sigma\sqrt{2\pi}}\exp(-\frac{\mathrm{offset}-x_i^2}{2 \sigma ^2})
-         * \f]
-         * \param[in] amplitude of the Gaussian spread.
-         * \param[in] latticeOffset The distance to the nearest grid point in lattice coordinates.
-         */
-        void spread(double amplitude, real latticeOffset);
-        /*! \brief Returns view on spread result. */
-        ArrayRef<const float> view();
-    private:
-        class Impl;
-        PrivateImplPointer<Impl> impl_;
+public:
+    /*! \brief Construct Gaussian spreader with spreading range and Gaussian width.
+     *
+     * Spread weights are distributed over a non-periodic lattice of length
+     * 2*numGridPointsForSpreadingHalfWidth+1. The lattice comprises a center point and
+     * spreadDistance points to the left and to the right.
+     *
+     * \note There is a maximum spreading width
+     *
+     * \param[in] numGridPointsForSpreadingHalfWidth maximum distance in number of gridpoints from 0
+     * \param[in] sigma Gaussian width.
+     */
+    GaussianOn1DLattice(int numGridPointsForSpreadingHalfWidth, real sigma);
+    ~GaussianOn1DLattice();
+    //! Copy constructor
+    GaussianOn1DLattice(const GaussianOn1DLattice& other);
+    //! Copy assignment
+    GaussianOn1DLattice& operator=(const GaussianOn1DLattice& other);
+    //! Move constructor
+    GaussianOn1DLattice(GaussianOn1DLattice&& other) noexcept;
+    //! Move assignment
+    GaussianOn1DLattice& operator=(GaussianOn1DLattice&& other) noexcept;
+    /*! \brief Spreads weight onto grid points in one dimension.
+     *
+     *
+     *            .            :            |            :            .
+     *            o            o            o            o            o
+     *                                  O---|
+     *                          latticeOffset
+     * O - atom position
+     * o - lattice positions
+     * . : | spreading value at grid points.
+     *
+     * \note Highest numerical accuracy is achieved when the spreading
+     *       with offset to the nearest lattice coordinated < 0.5
+     *
+     * Spreading on lattice coordinate \f$x_i\f$
+     * \f[
+     *      f(x_i) = \frac{\mathrm{amplitude}}{\sigma\sqrt{2\pi}}\exp(-\frac{\mathrm{offset}-x_i^2}{2 \sigma ^2})
+     * \f]
+     * \param[in] amplitude of the Gaussian spread.
+     * \param[in] latticeOffset The distance to the nearest grid point in lattice coordinates.
+     */
+    void spread(double amplitude, real latticeOffset);
+    /*! \brief Returns view on spread result. */
+    ArrayRef<const float> view();
+
+private:
+    class Impl;
+    PrivateImplPointer<Impl> impl_;
 };
 
 /*! \libinternal \brief Parameters for density spreading kernels.
@@ -134,104 +134,122 @@ struct GaussianSpreadKernelParameters
     struct Shape
     {
         //! The width of the Gaussian function in lattice spacings
-        real sigma_;
+        DVec sigma_;
         //! The range of the spreading function in multiples of sigma
-        real spreadWidthMultiplesOfSigma_;
+        double spreadWidthMultiplesOfSigma_;
         //! The spread range in lattice coordinates
-        int  latticeSpreadRange() const;
+        IVec latticeSpreadRange() const;
     };
     /*! \libinternal \brief Parameters that describe the kernel position and amplitude.
      */
     struct PositionAndAmplitude
     {
         //! position of the kernel to be spread onto the lattice
-        const RVec &coordinate_;
+        const RVec& coordinate_;
         //! amplitude of the spread kernel
-        real        amplitude_;
+        real amplitude_;
     };
 };
 
 /*! \libinternal \brief Sums Gaussian values at three dimensional lattice coordinates.
- * The Gaussian is defined as
- * \f[
- *      A * \frac{1}{\sigma^3 \sqrt(2^3*\pi^3)} * \exp(-\frac{(x-x0)^2}{2 \sigma^2})
- * \f]
- * \verbatim
- *  x0:              X           x
- *                 /   \        / \
- *               --     --    --   --
- *  lattice: |    |    |    |    |    |    |
- * \endverbatim
+ * The Gaussian is defined as \f$A \frac{1}{\sigma^3 \sqrt(2^3\pi^3)} * \exp(-\frac{(x-x0)^2}{2
+ \sigma^2})\f$ \verbatim x0:              X           x
+               /   \        / \
+             --     --    --   --
+   lattice: |    |    |    |    |    |    |
+   \endverbatim
  * The lattice has spacing 1, all coordinates are given with respect to the lattice
  * coordinates.
  */
 class GaussTransform3D
 {
-    public:
-        /*! \brief Construct a three-dimensional Gauss transform.
-         *
-         * Transform lattice values will be zero-initialized.
-         *
-         * \param[in] extent of the spread lattice
-         * \param[in] globalParameters of the spreading kernel
-         */
-        GaussTransform3D(const dynamicExtents3D &extent, const GaussianSpreadKernelParameters::Shape &globalParameters);
+public:
+    /*! \brief Construct a three-dimensional Gauss transform.
+     *
+     * Transform lattice values will be zero-initialized.
+     *
+     * \param[in] extent of the spread lattice
+     * \param[in] globalParameters of the spreading kernel
+     */
+    GaussTransform3D(const dynamicExtents3D&                      extent,
+                     const GaussianSpreadKernelParameters::Shape& globalParameters);
 
-        ~GaussTransform3D();
-        /*! \brief Add a three dimensional Gaussian with given amplitude at a coordinate.
-         * \param[in] localParameters of the spreading kernel
-         */
-        void add(const GaussianSpreadKernelParameters::PositionAndAmplitude &localParameters);
-        //! \brief Set all values on the lattice to zero.
-        void setZero();
-        //! Return a view on the spread lattice.
-        const basic_mdspan<const float, dynamicExtents3D> view();
+    ~GaussTransform3D();
 
-    private:
-        class Impl;
-        PrivateImplPointer<Impl> impl_;
+    //! Copy constructor
+    GaussTransform3D(const GaussTransform3D& other);
+
+    //! Copy assignment
+    GaussTransform3D& operator=(const GaussTransform3D& other);
+
+    //! Move constructor
+    GaussTransform3D(GaussTransform3D&& other) noexcept;
+
+    //! Move assignment
+    GaussTransform3D& operator=(GaussTransform3D&& other) noexcept;
+
+    /*! \brief Add a three dimensional Gaussian with given amplitude at a coordinate.
+     * \param[in] localParameters of the spreading kernel
+     */
+    void add(const GaussianSpreadKernelParameters::PositionAndAmplitude& localParameters);
+
+    //! \brief Set all values on the lattice to zero.
+    void setZero();
+
+    //! Return a view on the spread lattice.
+    basic_mdspan<float, dynamicExtents3D> view();
+
+    //! Return a const view on the spread lattice.
+    basic_mdspan<const float, dynamicExtents3D> constView() const;
+
+private:
+    class Impl;
+    PrivateImplPointer<Impl> impl_;
 };
 
 /*! \internal \brief A 3-orthotope over integer intervals.
  */
 class IntegerBox
 {
-    public:
-        //! Construct from begin and end
-        IntegerBox(const IVec &begin, const IVec &end);
-        //! Begin indices of the box
-        const IVec &begin() const;
-        //! End indices of the box
-        const IVec &end() const;
-        //! Empty if for any dimension, end <= begin;
-        bool empty() const;
-    private:
-        const IVec begin_; //< interger indices denoting begin of box
-        const IVec end_;   //< integer indices denoting one-past end of box in any dimension
+public:
+    //! Construct from begin and end
+    IntegerBox(const IVec& begin, const IVec& end);
+    //! Begin indices of the box
+    const IVec& begin() const;
+    //! End indices of the box
+    const IVec& end() const;
+    //! Empty if for any dimension, end <= begin;
+    bool empty() const;
+
+private:
+    const IVec begin_; //< interger indices denoting begin of box
+    const IVec end_;   //< integer indices denoting one-past end of box in any dimension
 };
 
-/*! \brief Construct a box that holds all indices that are not more than a given range remote from center coordinates
- * and still within a given lattice extent.
+/*! \brief Construct a box that holds all indices that are not more than a given range remote from
+ * center coordinates and still within a given lattice extent.
  *
  * \param[in] center the coordinates of the center of the spread range
  * \param[in] extent the end of the lattice, number of lattice points in each dimension
  * \param[in] range the distance from the center
  * \returns box describing the range of indices
  */
-IntegerBox spreadRangeWithinLattice(const IVec &center, dynamicExtents3D extent, int range);
+IntegerBox spreadRangeWithinLattice(const IVec& center, dynamicExtents3D extent, IVec range);
 
 /*! \internal \brief Evaluate the outer product of two number ranges.
  * Keeps the memory for the outer product allocated.
  */
 class OuterProductEvaluator
 {
-    public:
-        //! Evaluate the outer product of two float number ranges.
-        mdspan<const float, dynamic_extent, dynamic_extent> operator()(ArrayRef<const float> x, ArrayRef<const float> y);
-    private:
-        MultiDimArray < std::vector<float>, extents < dynamic_extent, dynamic_extent>> data_;
+public:
+    //! Evaluate the outer product of two float number ranges.
+    mdspan<const float, dynamic_extent, dynamic_extent> operator()(ArrayRef<const float> x,
+                                                                   ArrayRef<const float> y);
+
+private:
+    MultiDimArray<std::vector<float>, extents<dynamic_extent, dynamic_extent>> data_;
 };
 
-}      // namespace gmx
+} // namespace gmx
 
 #endif /* end of include guard: GMX_MATH_GAUSSTRANSFORM_H */

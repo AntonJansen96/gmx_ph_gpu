@@ -1,0 +1,27 @@
+ph = 4.25
+nr_residues = 1
+nr_lambdagroups = 1
+
+m_lambda = 10.0
+T_lambda = 300
+tau_lambda = 0.1
+nst_lambda = 100
+
+residue = GLUH
+n_coeffs = 4
+dvdl_coeffs = -18.677 587.47 -210.99 225.81                          
+ref_pka = 4.25
+
+name = GLUH
+residue_number = 1
+initial_lambda = 0.0
+barrier = 10.0
+n_atoms = 5
+index = 9 12 13 14 15
+
+ 9  -0.21   -0.28    
+12   0.75    0.62  
+13  -0.55   -0.76  
+14  -0.61   -0.76  
+15   0.44    0.00  
+

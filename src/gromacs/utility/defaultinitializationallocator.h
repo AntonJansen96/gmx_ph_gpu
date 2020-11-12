@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -54,34 +54,38 @@ namespace gmx
  *
  * This can be used to avoid initialization e.g. on resize() in std::vector.
  */
-template <typename T, typename A = std::allocator<T> >
+template<typename T, typename A = std::allocator<T>>
 class DefaultInitializationAllocator : public A
 {
     typedef std::allocator_traits<A> a_t;
-    public:
-        template <typename U> struct rebind {
-            using other =
-                    DefaultInitializationAllocator < U, typename a_t::template rebind_alloc < U>>;
-        };
 
-        using A::A;
+public:
+    template<typename U>
+    struct rebind
+    {
+        using other = DefaultInitializationAllocator<U, typename a_t::template rebind_alloc<U>>;
+    };
 
-        /*! \brief Constructs an object and default initializes */
-        template <typename U>
-        void construct(U* ptr)
-        noexcept(std::is_nothrow_default_constructible<U>::value) {
-            ::new(static_cast<void*>(ptr))U;
-        }
+    using A::A;
 
-        /*! \brief Constructs an object and value initializes */
-        template <typename U, typename ... Args>
-        void construct(U* ptr, Args && ... args)
-        {
-            a_t::construct(static_cast<A &>(*this),
-                           ptr, std::forward<Args>(args) ...);
-        }
+    /*! \brief Constructs an object and default initializes
+     *
+     * \todo Use std::is_nothrow_default_constructible_v when CUDA 11 is a requirement.
+     */
+    template<typename U>
+    void construct(U* ptr) noexcept(std::is_nothrow_default_constructible<U>::value)
+    {
+        ::new (static_cast<void*>(ptr)) U;
+    }
+
+    /*! \brief Constructs an object and value initializes */
+    template<typename U, typename... Args>
+    void construct(U* ptr, Args&&... args)
+    {
+        a_t::construct(static_cast<A&>(*this), ptr, std::forward<Args>(args)...);
+    }
 };
 
-}      // namespace gmx
+} // namespace gmx
 
 #endif // GMX_UTILITY_DEFAULTINITIALIZATIONALLOCATOR_H

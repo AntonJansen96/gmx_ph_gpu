@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2016,2017,2018 by the GROMACS development team.
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -75,8 +76,7 @@
  * not available to the user. FastGen takes care of generating both
  * single- and twin-cutoff versions because PME tuning might need both.
  */
-static const char * kernel_electrostatic_family_definitions[] =
-{
+static const char* kernel_electrostatic_family_definitions[] = {
     " -DEL_CUTOFF -DEELNAME=_ElecCut",
     " -DEL_RF -DEELNAME=_ElecRF",
     " -DEL_EWALD_TAB -DEELNAME=_ElecEwQSTab",
@@ -87,8 +87,7 @@ static const char * kernel_electrostatic_family_definitions[] =
 
 /*! \brief Array of the defines needed to generate a specific vdw flavour
  */
-static const char * kernel_VdW_family_definitions[] =
-{
+static const char* kernel_VdW_family_definitions[] = {
     " -DVDWNAME=_VdwLJ",
     " -DLJ_COMB_GEOM -DVDWNAME=_VdwLJCombGeom",
     " -DLJ_COMB_LB -DVDWNAME=_VdwLJCombLB",
@@ -100,15 +99,15 @@ static const char * kernel_VdW_family_definitions[] =
 
 /*! \brief Returns a string with the compiler defines required to avoid all flavour generation
  *
- * For example if flavour eelOclRF with evdwOclFSWITCH, the output will be such that the corresponding
+ * For example if flavour eelTypeRF with evdwTypeFSWITCH, the output will be such that the corresponding
  * kernel flavour is generated:
  * -DGMX_OCL_FASTGEN          (will replace flavour generator nbnxn_ocl_kernels.clh with nbnxn_ocl_kernels_fastgen.clh)
- * -DEL_RF                    (The eelOclRF flavour)
+ * -DEL_RF                    (The eelTypeRF flavour)
  * -DEELNAME=_ElecRF          (The first part of the generated kernel name )
- * -DLJ_EWALD_COMB_GEOM       (The evdwOclFSWITCH flavour)
+ * -DLJ_EWALD_COMB_GEOM       (The evdwTypeFSWITCH flavour)
  * -DVDWNAME=_VdwLJEwCombGeom (The second part of the generated kernel name )
  *
- * prune/energy are still generated as originally. It is only the the flavour-level that has changed, so that
+ * prune/energy are still generated as originally. It is only the flavour-level that has changed, so that
  * only the required flavour for the simulation is compiled.
  *
  * If eeltype is single-range Ewald, then we need to add the
@@ -129,17 +128,13 @@ static const char * kernel_VdW_family_definitions[] =
  *
  * \throws std::bad_alloc if out of memory
  */
-static std::string
-makeDefinesForKernelTypes(bool bFastGen,
-                          int  eeltype,
-                          int  vdwtype)
+static std::string makeDefinesForKernelTypes(bool bFastGen, int eeltype, int vdwtype)
 {
     std::string defines_for_kernel_types;
 
     if (bFastGen)
     {
-        bool bIsEwaldSingleCutoff = (eeltype == eelOclEWALD_TAB ||
-                                     eeltype == eelOclEWALD_ANA);
+        bool bIsEwaldSingleCutoff = (eeltype == eelTypeEWALD_TAB || eeltype == eelTypeEWALD_ANA);
 
         if (bIsEwaldSingleCutoff)
         {
@@ -168,15 +163,14 @@ makeDefinesForKernelTypes(bool bFastGen,
  *
  * A fatal error results if compilation fails.
  *
- * \param[inout] nb  Manages OpenCL non-bonded calculations; compiled kernels returned in dev_info members
+ * \param[inout] nb  Manages OpenCL non-bonded calculations; compiled kernels returned in deviceInfo members
  *
  * Does not throw
  */
-void
-nbnxn_gpu_compile_kernels(gmx_nbnxn_ocl_t *nb)
+void nbnxn_gpu_compile_kernels(NbnxmGpu* nb)
 {
-    gmx_bool                  bFastGen = TRUE;
-    cl_program                program  = nullptr;
+    gmx_bool   bFastGen = TRUE;
+    cl_program program  = nullptr;
 
     if (getenv("GMX_OCL_NOFASTGEN") != nullptr)
     {
@@ -187,37 +181,38 @@ nbnxn_gpu_compile_kernels(gmx_nbnxn_ocl_t *nb)
        handling. */
     try
     {
-        std::string extraDefines = makeDefinesForKernelTypes(bFastGen,
-                                                             nb->nbparam->eeltype,
-                                                             nb->nbparam->vdwtype);
+        std::string extraDefines =
+                makeDefinesForKernelTypes(bFastGen, nb->nbparam->eeltype, nb->nbparam->vdwtype);
 
-        /* Here we pass macros and static const int variables defined
+        /* Here we pass macros and static const/constexpr int variables defined
          * in include files outside the opencl as macros, to avoid
-         * including those files in the JIT compilation that happens
-         * at runtime. This is particularly a problem for headers that
-         * depend on config.h, such as pairlist.h. */
+         * including those files in the plain-C JIT compilation that happens
+         * at runtime.
+         * Note that we need to re-add the the suffix to the floating point literals
+         * passed the to the kernel to avoid type ambiguity.
+         */
         extraDefines += gmx::formatString(
-                    " -DNBNXN_GPU_CLUSTER_SIZE=%d "
-                    "%s",
-                    c_nbnxnGpuClusterSize,                                  /* Defined in nbnxn_pairlist.h */
-                    (nb->bPrefetchLjParam) ? "-DIATYPE_SHMEM" : ""
-                    );
+                " -Dc_nbnxnGpuClusterSize=%d"
+                " -DNBNXM_MIN_DISTANCE_SQUARED_VALUE_FLOAT=%g"
+                " -Dc_nbnxnGpuNumClusterPerSupercluster=%d"
+                " -Dc_nbnxnGpuJgroupSize=%d"
+                "%s",
+                c_nbnxnGpuClusterSize, c_nbnxnMinDistanceSquared, c_nbnxnGpuNumClusterPerSupercluster,
+                c_nbnxnGpuJgroupSize, (nb->bPrefetchLjParam) ? " -DIATYPE_SHMEM" : "");
         try
         {
             /* TODO when we have a proper MPI-aware logging module,
                the log output here should be written there */
-            program = gmx::ocl::compileProgram(stderr,
-                                               "gromacs/nbnxm/opencl",
-                                               "nbnxm_ocl_kernels.cl",
-                                               extraDefines,
-                                               nb->dev_rundata->context,
-                                               nb->dev_info->ocl_gpu_id.ocl_device_id,
-                                               nb->dev_info->vendor_e);
+            program = gmx::ocl::compileProgram(
+                    stderr, "gromacs/nbnxm/opencl", "nbnxm_ocl_kernels.cl", extraDefines,
+                    nb->deviceContext_->context(), nb->deviceContext_->deviceInfo().oclDeviceId,
+                    nb->deviceContext_->deviceInfo().deviceVendor);
         }
-        catch (gmx::GromacsException &e)
+        catch (gmx::GromacsException& e)
         {
-            e.prependContext(gmx::formatString("Failed to compile NBNXN kernels for GPU #%s\n",
-                                               nb->dev_info->device_name));
+            e.prependContext(gmx::formatString(
+                    "Failed to compile/load nbnxm kernels for GPU #%d %s\n",
+                    nb->deviceContext_->deviceInfo().id, nb->deviceContext_->deviceInfo().device_name));
             throw;
         }
     }

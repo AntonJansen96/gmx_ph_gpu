@@ -3,7 +3,8 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2017,2018 by the GROMACS development team.
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -50,11 +51,12 @@
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/smalloc.h"
 
-typedef struct {
+typedef struct
+{
     int atom, sid;
 } t_sid;
 
-static bool sid_comp(const t_sid &sa, const t_sid &sb)
+static bool sid_comp(const t_sid& sa, const t_sid& sb)
 {
     if (sa.sid == sb.sid)
     {
@@ -66,40 +68,39 @@ static bool sid_comp(const t_sid &sa, const t_sid &sb)
     }
 }
 
-static int mk_grey(egCol egc[], t_graph *g, int *AtomI,
-                   int maxsid, t_sid sid[])
+static int mk_grey(gmx::ArrayRef<egCol> edgeColor, const t_graph* g, int* AtomI, int maxsid, t_sid sid[])
 {
-    int  j, ng, ai, aj, g0;
+    int ng, ai, g0;
 
     ng = 0;
     ai = *AtomI;
 
-    g0 = g->at_start;
+    g0 = g->edgeAtomBegin;
     /* Loop over all the bonds */
-    for (j = 0; (j < g->nedge[ai]); j++)
+    for (int aj : g->edges[ai])
     {
-        aj = g->edge[ai][j]-g0;
+        aj -= g0;
         /* If there is a white one, make it gray and set pbc */
-        if (egc[aj] == egcolWhite)
+        if (edgeColor[aj] == egcolWhite)
         {
             if (aj < *AtomI)
             {
                 *AtomI = aj;
             }
-            egc[aj] = egcolGrey;
+            edgeColor[aj] = egcolGrey;
 
             /* Check whether this one has been set before... */
-            range_check(aj+g0, 0, maxsid);
-            range_check(ai+g0, 0, maxsid);
-            if (sid[aj+g0].sid != -1)
+            range_check(aj + g0, 0, maxsid);
+            range_check(ai + g0, 0, maxsid);
+            if (sid[aj + g0].sid != -1)
             {
-                gmx_fatal(FARGS, "sid[%d]=%d, sid[%d]=%d, file %s, line %d",
-                          ai, sid[ai+g0].sid, aj, sid[aj+g0].sid, __FILE__, __LINE__);
+                gmx_fatal(FARGS, "sid[%d]=%d, sid[%d]=%d, file %s, line %d", ai, sid[ai + g0].sid,
+                          aj, sid[aj + g0].sid, __FILE__, __LINE__);
             }
             else
             {
-                sid[aj+g0].sid  = sid[ai+g0].sid;
-                sid[aj+g0].atom = aj+g0;
+                sid[aj + g0].sid  = sid[ai + g0].sid;
+                sid[aj + g0].atom = aj + g0;
             }
             ng++;
         }
@@ -107,16 +108,16 @@ static int mk_grey(egCol egc[], t_graph *g, int *AtomI,
     return ng;
 }
 
-static int first_colour(int fC, egCol Col, t_graph *g, const egCol egc[])
+static int first_colour(const int fC, const egCol Col, const t_graph* g, gmx::ArrayRef<const egCol> edgeColor)
 /* Return the first node with colour Col starting at fC.
  * return -1 if none found.
  */
 {
     int i;
 
-    for (i = fC; (i < g->nnodes); i++)
+    for (i = fC; i < int(g->edges.size()); i++)
     {
-        if ((g->nedge[i] > 0) && (egc[i] == Col))
+        if (!g->edges[i].empty() && edgeColor[i] == Col)
         {
             return i;
         }
@@ -125,26 +126,24 @@ static int first_colour(int fC, egCol Col, t_graph *g, const egCol egc[])
     return -1;
 }
 
-static int mk_sblocks(FILE *fp, t_graph *g, int maxsid, t_sid sid[])
+static int mk_sblocks(FILE* fp, t_graph* g, int maxsid, t_sid sid[])
 {
-    int     ng, nnodes;
-    int     nW, nG, nB;    /* Number of Grey, Black, White	*/
-    int     fW, fG;        /* First of each category	*/
-    egCol  *egc = nullptr; /* The colour of each node	*/
-    int     g0, nblock;
+    int ng;
+    int nW, nG, nB; /* Number of Grey, Black, White	*/
+    int fW, fG;     /* First of each category	*/
+    int g0, nblock;
 
-    if (!g->nbound)
+    if (!g->numConnectedAtoms)
     {
         return 0;
     }
 
     nblock = 0;
 
-    nnodes = g->nnodes;
-    snew(egc, nnodes);
+    std::vector<egCol> edgeColor(g->edges.size(), egcolWhite);
 
-    g0 = g->at_start;
-    nW = g->nbound;
+    g0 = g->edgeAtomBegin;
+    nW = g->numConnectedAtoms;
     nG = 0;
     nB = 0;
 
@@ -165,15 +164,15 @@ static int mk_sblocks(FILE *fp, t_graph *g, int maxsid, t_sid sid[])
          * number than before, because no nodes are made white
          * in the loop
          */
-        if ((fW = first_colour(fW, egcolWhite, g, egc)) == -1)
+        if ((fW = first_colour(fW, egcolWhite, g, edgeColor)) == -1)
         {
             gmx_fatal(FARGS, "No WHITE nodes found while nW=%d\n", nW);
         }
 
         /* Make the first white node grey, and set the block number */
-        egc[fW]        = egcolGrey;
-        range_check(fW+g0, 0, maxsid);
-        sid[fW+g0].sid = nblock++;
+        edgeColor[fW] = egcolGrey;
+        range_check(fW + g0, 0, maxsid);
+        sid[fW + g0].sid = nblock++;
         nG++;
         nW--;
 
@@ -182,32 +181,30 @@ static int mk_sblocks(FILE *fp, t_graph *g, int maxsid, t_sid sid[])
 
         if (debug)
         {
-            fprintf(debug, "Starting G loop (nW=%d, nG=%d, nB=%d, total %d)\n",
-                    nW, nG, nB, nW+nG+nB);
+            fprintf(debug, "Starting G loop (nW=%d, nG=%d, nB=%d, total %d)\n", nW, nG, nB, nW + nG + nB);
         }
 
         while (nG > 0)
         {
-            if ((fG = first_colour(fG, egcolGrey, g, egc)) == -1)
+            if ((fG = first_colour(fG, egcolGrey, g, edgeColor)) == -1)
             {
                 gmx_fatal(FARGS, "No GREY nodes found while nG=%d\n", nG);
             }
 
             /* Make the first grey node black */
-            egc[fG] = egcolBlack;
+            edgeColor[fG] = egcolBlack;
             nB++;
             nG--;
 
             /* Make all the neighbours of this black node grey
              * and set their block number
              */
-            ng = mk_grey(egc, g, &fG, maxsid, sid);
+            ng = mk_grey(edgeColor, g, &fG, maxsid, sid);
             /* ng is the number of white nodes made grey */
             nG += ng;
             nW -= ng;
         }
     }
-    sfree(egc);
 
     if (debug)
     {
@@ -218,20 +215,21 @@ static int mk_sblocks(FILE *fp, t_graph *g, int maxsid, t_sid sid[])
 }
 
 
-typedef struct {
+typedef struct
+{
     int first, last, sid;
 } t_merge_sid;
 
-static int ms_comp(const void *a, const void *b)
+static int ms_comp(const void* a, const void* b)
 {
-    const t_merge_sid *ma = reinterpret_cast<const t_merge_sid *>(a);
-    const t_merge_sid *mb = reinterpret_cast<const t_merge_sid *>(b);
+    const t_merge_sid* ma = reinterpret_cast<const t_merge_sid*>(a);
+    const t_merge_sid* mb = reinterpret_cast<const t_merge_sid*>(b);
     int                d;
 
-    d = ma->first-mb->first;
+    d = ma->first - mb->first;
     if (d == 0)
     {
-        return ma->last-mb->last;
+        return ma->last - mb->last;
     }
     else
     {
@@ -239,11 +237,10 @@ static int ms_comp(const void *a, const void *b)
     }
 }
 
-static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
-                     t_blocka *sblock)
+static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[], t_blocka* sblock)
 {
     int          i, j, k, n, isid, ndel;
-    t_merge_sid *ms;
+    t_merge_sid* ms;
 
     /* We try to remdy the following problem:
      * Atom: 1  2  3  4  5 6 7 8 9 10
@@ -255,7 +252,7 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
 
     for (k = 0; (k < nsid); k++)
     {
-        ms[k].first = at_end+1;
+        ms[k].first = at_end + 1;
         ms[k].last  = -1;
         ms[k].sid   = k;
     }
@@ -273,9 +270,9 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
 
     /* Now merge the overlapping ones */
     ndel = 0;
-    for (k = 0; (k < nsid); )
+    for (k = 0; (k < nsid);)
     {
-        for (j = k+1; (j < nsid); )
+        for (j = k + 1; (j < nsid);)
         {
             if (ms[j].first <= ms[k].last)
             {
@@ -288,7 +285,7 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
             else
             {
                 k = j;
-                j = k+1;
+                j = k + 1;
             }
         }
         if (j == nsid)
@@ -298,11 +295,11 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
     }
     for (k = 0; (k < nsid); k++)
     {
-        while ((k < nsid-1) && (ms[k].sid == -1))
+        while ((k < nsid - 1) && (ms[k].sid == -1))
         {
-            for (j = k+1; (j < nsid); j++)
+            for (j = k + 1; (j < nsid); j++)
             {
-                std::memcpy(&(ms[j-1]), &(ms[j]), sizeof(ms[0]));
+                std::memcpy(&(ms[j - 1]), &(ms[j]), sizeof(ms[0]));
             }
             nsid--;
         }
@@ -314,7 +311,7 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
         sid[k].sid  = -1;
     }
     sblock->nr           = nsid;
-    sblock->nalloc_index = sblock->nr+1;
+    sblock->nalloc_index = sblock->nr + 1;
     snew(sblock->index, sblock->nalloc_index);
     sblock->nra      = at_end - at_start;
     sblock->nalloc_a = sblock->nra;
@@ -322,7 +319,7 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
     sblock->index[0] = 0;
     for (k = n = 0; (k < nsid); k++)
     {
-        sblock->index[k+1] = sblock->index[k] + ms[k].last - ms[k].first+1;
+        sblock->index[k + 1] = sblock->index[k] + ms[k].last - ms[k].first + 1;
         for (j = ms[k].first; (j <= ms[k].last); j++)
         {
             range_check(n, 0, sblock->nra);
@@ -347,24 +344,22 @@ static int merge_sid(int at_start, int at_end, int nsid, t_sid sid[],
     return nsid;
 }
 
-void gen_sblocks(FILE *fp, int at_start, int at_end,
-                 const t_idef *idef, t_blocka *sblock,
-                 gmx_bool bSettle)
+void gen_sblocks(FILE* fp, int at_end, const InteractionDefinitions& idef, t_blocka* sblock, gmx_bool bSettle)
 {
-    t_graph *g;
+    t_graph* g;
     int      i, i0;
-    t_sid   *sid;
+    t_sid*   sid;
     int      nsid;
 
-    g = mk_graph(nullptr, idef, at_start, at_end, TRUE, bSettle);
+    g = mk_graph(nullptr, idef, at_end, TRUE, bSettle);
     if (debug)
     {
         p_graph(debug, "Graaf Dracula", g);
     }
     snew(sid, at_end);
-    for (i = at_start; (i < at_end); i++)
+    for (i = 0; i < at_end; i++)
     {
-        sid[i].atom =  i;
+        sid[i].atom = i;
         sid[i].sid  = -1;
     }
     nsid = mk_sblocks(fp, g, at_end, sid);
@@ -375,18 +370,18 @@ void gen_sblocks(FILE *fp, int at_start, int at_end,
     }
 
     /* Now sort the shake blocks... */
-    std::sort(sid+at_start, sid+at_end, sid_comp);
+    std::sort(sid, sid + at_end, sid_comp);
 
     if (debug)
     {
         fprintf(debug, "Sorted shake block\n");
-        for (i = at_start; (i < at_end); i++)
+        for (i = 0; i < at_end; i++)
         {
             fprintf(debug, "sid[%5d] = atom:%5d sid:%5d\n", i, sid[i].atom, sid[i].sid);
         }
     }
     /* Now check how many are NOT -1, i.e. how many have to be shaken */
-    for (i0 = at_start; (i0 < at_end); i0++)
+    for (i0 = 0; i0 < at_end; i0++)
     {
         if (sid[i0].sid > -1)
         {
@@ -400,11 +395,10 @@ void gen_sblocks(FILE *fp, int at_start, int at_end,
      * part of the shake block too. There may be cases where blocks overlap
      * and they will have to be merged.
      */
-    merge_sid(at_start, at_end, nsid, sid, sblock);
+    merge_sid(0, at_end, nsid, sid, sblock);
     sfree(sid);
     /* Due to unknown reason this free generates a problem sometimes */
     done_graph(g);
-    sfree(g);
     if (debug)
     {
         fprintf(debug, "Done gen_sblocks\n");

@@ -32,19 +32,44 @@
 # To help us fund GROMACS development, we humbly ask that you cite
 # the research papers on the package. Check out http://www.gromacs.org.
 
-"""gmxapi Python package for GROMACS."""
+"""gmxapi Python package for GROMACS.
 
-# Import system facilities
-import logging
+This package provides Python access to GROMACS molecular simulation tools.
+Operations can be connected flexibly to allow high performance simulation and
+analysis with complex control and data flows. Users can define new operations
+in C++ or Python with the same tool kit used to implement this package.
 
-logging.getLogger().addHandler(logging.NullHandler(level=logging.DEBUG))
-logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger().info("Setting up logging for gmxapi package.")
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.info("Importing gmxapi.")
+"""
 
-__all__ = ['operation']
+__all__ = ['commandline_operation',
+           'concatenate_lists',
+           'function_wrapper',
+           'join_arrays',
+           'logger',
+           'logical_not',
+           'make_constant',
+           'mdrun',
+           'modify_input',
+           'ndarray',
+           'read_tpr',
+           'subgraph',
+           'while_loop',
+           'NDArray',
+           '__version__']
 
-from gmxapi import operation
-from gmxapi import _gmxapi
+from ._logging import logger
+from .version import __version__
+
+# Import utilities
+from .operation import computed_result, function_wrapper
+# Import public types
+from .datamodel import NDArray
+# Import the public operations
+from .datamodel import ndarray
+from .operation import concatenate_lists, join_arrays, logical_not, make_constant
+from .commandline import commandline_operation
+from .simulation import mdrun, modify_input, read_tpr
+# TODO: decide where this lives
+from .operation import subgraph
+# TODO: decide where this lives
+from .operation import while_loop

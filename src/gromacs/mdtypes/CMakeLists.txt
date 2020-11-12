@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2015, by the GROMACS development team, led by
+# Copyright (c) 2015,2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -32,12 +32,49 @@
 # To help us fund GROMACS development, we humbly ask that you cite
 # the research papers on the package. Check out http://www.gromacs.org.
 
-file(GLOB MDTYPES_SOURCES *.cpp)
+file(GLOB MDTYPES_SOURCES
+    checkpointdata.cpp
+    df_history.cpp
+    energyhistory.cpp
+    forcebuffers.cpp
+    group.cpp
+    iforceprovider.cpp
+    inputrec.cpp
+    interaction_const.cpp
+    md_enums.cpp
+    multipletimestepping.cpp
+    observableshistory.cpp
+    state.cpp)
+
+if(GMX_GPU)
+    gmx_add_libgromacs_sources(
+       state_propagator_data_gpu_impl_gpu.cpp
+       )
+   if(GMX_GPU_CUDA)
+       _gmx_add_files_to_property(CUDA_SOURCES
+           state_propagator_data_gpu_impl_gpu.cpp
+           )
+   endif()
+   if(GMX_GPU_SYCL)
+       _gmx_add_files_to_property(SYCL_SOURCES
+           state_propagator_data_gpu_impl_gpu.cpp
+           )
+   endif()
+else()
+    gmx_add_libgromacs_sources(
+      state_propagator_data_gpu_impl.cpp
+      )
+endif()
+
+if (BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
 set(LIBGROMACS_SOURCES ${LIBGROMACS_SOURCES} ${MDTYPES_SOURCES} PARENT_SCOPE)
 
-gmx_install_headers(
-    inputrec.h
-    mdatom.h
-    md_enums.h
-    state.h
-)
+if(GMX_INSTALL_LEGACY_API)
+  install(FILES
+          inputrec.h
+          md_enums.h
+          DESTINATION include/gromacs/mdtypes)
+endif()

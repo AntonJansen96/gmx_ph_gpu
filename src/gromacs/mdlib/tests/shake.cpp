@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -45,6 +45,8 @@
 
 #include <gtest/gtest.h>
 
+#include "gromacs/utility/arrayref.h"
+
 #include "testutils/refdata.h"
 #include "testutils/testasserts.h"
 
@@ -65,23 +67,18 @@ const int constraintStride = 3;
 
 /*! \brief Compute the displacements between pairs of constrained
  * atoms described in the iatom "topology". */
-std::vector<real>
-computeDisplacements(const std::vector<int>     &iatom,
-                     const std::vector<real>    &positions)
+std::vector<RVec> computeDisplacements(ArrayRef<const int> iatom, const std::vector<RVec>& positions)
 {
     assert(0 == iatom.size() % constraintStride);
     int               numConstraints = iatom.size() / constraintStride;
-    std::vector<real> displacements;
+    std::vector<RVec> displacements;
 
     for (int ll = 0; ll != numConstraints; ++ll)
     {
-        int atom_i = iatom[ll*constraintStride + 1];
-        int atom_j = iatom[ll*constraintStride + 2];
+        int atom_i = iatom[ll * constraintStride + 1];
+        int atom_j = iatom[ll * constraintStride + 2];
 
-        for (int d = 0; d != DIM; d++)
-        {
-            displacements.push_back(positions[atom_i*DIM + d] - positions[atom_j*DIM + d]);
-        }
+        displacements.push_back(positions[atom_i] - positions[atom_j]);
     }
 
     return displacements;
@@ -91,17 +88,16 @@ computeDisplacements(const std::vector<int>     &iatom,
  * atoms in the iatom "topology".
  *
  * The reduced mass is m = 1/(1/m_i + 1/m_j)) */
-std::vector<real>
-computeHalfOfReducedMasses(const std::vector<int>     &iatom,
-                           const std::vector<real>    &inverseMasses)
+std::vector<real> computeHalfOfReducedMasses(const std::vector<int>&  iatom,
+                                             const std::vector<real>& inverseMasses)
 {
     int               numConstraints = iatom.size() / constraintStride;
     std::vector<real> halfOfReducedMasses;
 
     for (int ll = 0; ll != numConstraints; ++ll)
     {
-        int atom_i = iatom[ll*constraintStride + 1];
-        int atom_j = iatom[ll*constraintStride + 2];
+        int atom_i = iatom[ll * constraintStride + 1];
+        int atom_j = iatom[ll * constraintStride + 2];
 
         halfOfReducedMasses.push_back(0.5 / (inverseMasses[atom_i] + inverseMasses[atom_j]));
     }
@@ -110,11 +106,9 @@ computeHalfOfReducedMasses(const std::vector<int>     &iatom,
 }
 
 /*! \brief Compute the distances corresponding to the vector of displacements components */
-std::vector<real>
-computeDistancesSquared(const std::vector<real> &displacements)
+std::vector<real> computeDistancesSquared(ArrayRef<const RVec> displacements)
 {
-    assert(0 == displacements.size() % DIM);
-    int               numDistancesSquared = displacements.size() / DIM;
+    int               numDistancesSquared = displacements.size();
     std::vector<real> distanceSquared;
 
     for (int i = 0; i != numDistancesSquared; ++i)
@@ -122,7 +116,7 @@ computeDistancesSquared(const std::vector<real> &displacements)
         distanceSquared.push_back(0.0);
         for (int d = 0; d != DIM; ++d)
         {
-            real displacement = displacements[i*DIM + d];
+            real displacement = displacements[i][d];
             distanceSquared.back() += displacement * displacement;
         }
     }
@@ -133,121 +127,111 @@ computeDistancesSquared(const std::vector<real> &displacements)
 /*! \brief Test fixture for testing SHAKE */
 class ShakeTest : public ::testing::Test
 {
-    public:
-        /*! \brief Set up data for test cases to use when constructing
-            their input */
-        void SetUp() override
+public:
+    /*! \brief Set up data for test cases to use when constructing
+        their input */
+    void SetUp() override
+    {
+        inverseMassesDatabase_.push_back(2.0);
+        inverseMassesDatabase_.push_back(3.0);
+        inverseMassesDatabase_.push_back(4.0);
+        inverseMassesDatabase_.push_back(1.0);
+
+        positionsDatabase_.emplace_back(2.5, -3.1, 15.7);
+
+        positionsDatabase_.emplace_back(0.51, -3.02, 15.55);
+
+        positionsDatabase_.emplace_back(-0.5, -3.0, 15.2);
+
+        positionsDatabase_.emplace_back(-1.51, -2.95, 15.05);
+    }
+
+    //! Run the test
+    static void runTest(size_t gmx_unused        numAtoms,
+                        size_t                   numConstraints,
+                        const std::vector<int>&  iatom,
+                        const std::vector<real>& constrainedDistances,
+                        const std::vector<real>& inverseMasses,
+                        const std::vector<RVec>& positions)
+    {
+        // Check the test input is consistent
+        assert(numConstraints * constraintStride == iatom.size());
+        assert(numConstraints == constrainedDistances.size());
+        assert(numAtoms == inverseMasses.size());
+        assert(numAtoms == positions.size());
+        for (size_t i = 0; i != numConstraints; ++i)
         {
-            inverseMassesDatabase_.push_back(2.0);
-            inverseMassesDatabase_.push_back(3.0);
-            inverseMassesDatabase_.push_back(4.0);
-            inverseMassesDatabase_.push_back(1.0);
-
-            positionsDatabase_.push_back(2.5);
-            positionsDatabase_.push_back(-3.1);
-            positionsDatabase_.push_back(15.7);
-
-            positionsDatabase_.push_back(0.51);
-            positionsDatabase_.push_back(-3.02);
-            positionsDatabase_.push_back(15.55);
-
-            positionsDatabase_.push_back(-0.5);
-            positionsDatabase_.push_back(-3.0);
-            positionsDatabase_.push_back(15.2);
-
-            positionsDatabase_.push_back(-1.51);
-            positionsDatabase_.push_back(-2.95);
-            positionsDatabase_.push_back(15.05);
-        }
-
-        //! Run the test
-        void runTest(size_t gmx_unused           numAtoms,
-                     size_t                      numConstraints,
-                     const std::vector<int>     &iatom,
-                     const std::vector<real>    &constrainedDistances,
-                     const std::vector<real>    &inverseMasses,
-                     const std::vector<real>    &positions)
-        {
-            // Check the test input is consistent
-            assert(numConstraints * constraintStride == iatom.size());
-            assert(numConstraints == constrainedDistances.size());
-            assert(numAtoms == inverseMasses.size());
-            assert(numAtoms * DIM == positions.size());
-            for (size_t i = 0; i != numConstraints; ++i)
+            for (size_t j = 1; j < 3; j++)
             {
-                for (size_t j = 1; j < 3; j++)
-                {
-                    // Check that the topology refers to atoms that have masses and positions
-                    assert(iatom[i*constraintStride + j] >= 0);
-                    assert(iatom[i*constraintStride + j] < static_cast<int>(numAtoms));
-                }
-            }
-            std::vector<real> distanceSquaredTolerances;
-            std::vector<real> lagrangianValues;
-            std::vector<real> constrainedDistancesSquared;
-
-            real              coordMax = 0;
-            for (size_t i = 0; i != numConstraints; ++i)
-            {
-                constrainedDistancesSquared.push_back(constrainedDistances[i] * constrainedDistances[i]);
-                distanceSquaredTolerances.push_back(0.5 / (constrainedDistancesSquared.back() * ShakeTest::tolerance_));
-                lagrangianValues.push_back(0.0);
-
-                for (size_t j = 1; j < constraintStride; j++)
-                {
-                    for (int d = 0; d < DIM; d++)
-                    {
-                        coordMax = std::max(coordMax, std::abs(positions[iatom[i*constraintStride + j]*DIM + d]));
-                    }
-                }
-            }
-            std::vector<real> halfOfReducedMasses  = computeHalfOfReducedMasses(iatom, inverseMasses);
-            std::vector<real> initialDisplacements = computeDisplacements(iatom, positions);
-
-            std::vector<real> finalPositions = positions;
-            int               numIterations  = 0;
-            int               numErrors      = 0;
-
-            cshake(iatom.data(), numConstraints, &numIterations,
-                   ShakeTest::maxNumIterations_, constrainedDistancesSquared.data(),
-                   finalPositions.data(), initialDisplacements.data(),
-                   halfOfReducedMasses.data(), omega_, inverseMasses.data(),
-                   distanceSquaredTolerances.data(),
-                   lagrangianValues.data(),
-                   &numErrors);
-
-            std::vector<real> finalDisplacements    = computeDisplacements(iatom, finalPositions);
-            std::vector<real> finalDistancesSquared = computeDistancesSquared(finalDisplacements);
-            assert(numConstraints == finalDistancesSquared.size());
-
-            EXPECT_EQ(0, numErrors);
-            EXPECT_GT(numIterations, 1);
-            EXPECT_LT(numIterations, ShakeTest::maxNumIterations_);
-            // TODO wrap this in a Google Mock matcher if there's
-            // other tests like it some time?
-            for (size_t i = 0; i != numConstraints; ++i)
-            {
-                // We need to allow for the requested tolerance plus rounding
-                // errors due to the absolute size of the coordinate values
-                test::FloatingPointTolerance constraintTolerance =
-                    test::absoluteTolerance(std::sqrt(constrainedDistancesSquared[i])*ShakeTest::tolerance_ + coordMax*GMX_REAL_EPS);
-                // Assert that the constrained distances are within the required tolerance
-                EXPECT_FLOAT_EQ_TOL(std::sqrt(constrainedDistancesSquared[i]),
-                                    std::sqrt(finalDistancesSquared[i]),
-                                    constraintTolerance);
+                // Check that the topology refers to atoms that have masses and positions
+                assert(iatom[i * constraintStride + j] >= 0);
+                assert(iatom[i * constraintStride + j] < static_cast<int>(numAtoms));
             }
         }
+        std::vector<real> distanceSquaredTolerances;
+        std::vector<real> lagrangianValues;
+        std::vector<real> constrainedDistancesSquared;
 
-        //! Tolerance for SHAKE conversion (ie. shake-tol .mdp setting)
-        static const real tolerance_;
-        //! Maximum number of iterations permitted in these tests
-        static const int  maxNumIterations_;
-        //! SHAKE over-relaxation (SOR) factor
-        static const real omega_;
-        //! Database of inverse masses of atoms in the topology
-        std::vector<real> inverseMassesDatabase_;
-        //! Database of atom positions (three reals per atom)
-        std::vector<real> positionsDatabase_;
+        real coordMax = 0;
+        for (size_t i = 0; i != numConstraints; ++i)
+        {
+            constrainedDistancesSquared.push_back(constrainedDistances[i] * constrainedDistances[i]);
+            distanceSquaredTolerances.push_back(
+                    0.5 / (constrainedDistancesSquared.back() * ShakeTest::tolerance_));
+            lagrangianValues.push_back(0.0);
+
+            for (size_t j = 1; j < constraintStride; j++)
+            {
+                for (int d = 0; d < DIM; d++)
+                {
+                    coordMax = std::max(coordMax, std::abs(positions[iatom[i * constraintStride + j]][d]));
+                }
+            }
+        }
+        std::vector<real> halfOfReducedMasses  = computeHalfOfReducedMasses(iatom, inverseMasses);
+        std::vector<RVec> initialDisplacements = computeDisplacements(iatom, positions);
+
+        std::vector<RVec> finalPositions = positions;
+        int               numIterations  = 0;
+        int               numErrors      = 0;
+
+        cshake(iatom.data(), numConstraints, &numIterations, ShakeTest::maxNumIterations_,
+               constrainedDistancesSquared, finalPositions, nullptr, initialDisplacements,
+               halfOfReducedMasses, omega_, inverseMasses.data(), distanceSquaredTolerances,
+               lagrangianValues, &numErrors);
+
+        std::vector<RVec> finalDisplacements    = computeDisplacements(iatom, finalPositions);
+        std::vector<real> finalDistancesSquared = computeDistancesSquared(finalDisplacements);
+        assert(numConstraints == finalDistancesSquared.size());
+
+        EXPECT_EQ(0, numErrors);
+        EXPECT_GT(numIterations, 1);
+        EXPECT_LT(numIterations, ShakeTest::maxNumIterations_);
+        // TODO wrap this in a Google Mock matcher if there's
+        // other tests like it some time?
+        for (size_t i = 0; i != numConstraints; ++i)
+        {
+            // We need to allow for the requested tolerance plus rounding
+            // errors due to the absolute size of the coordinate values
+            test::FloatingPointTolerance constraintTolerance =
+                    test::absoluteTolerance(std::sqrt(constrainedDistancesSquared[i]) * ShakeTest::tolerance_
+                                            + coordMax * GMX_REAL_EPS);
+            // Assert that the constrained distances are within the required tolerance
+            EXPECT_FLOAT_EQ_TOL(std::sqrt(constrainedDistancesSquared[i]),
+                                std::sqrt(finalDistancesSquared[i]), constraintTolerance);
+        }
+    }
+
+    //! Tolerance for SHAKE conversion (ie. shake-tol .mdp setting)
+    static const real tolerance_;
+    //! Maximum number of iterations permitted in these tests
+    static const int maxNumIterations_;
+    //! SHAKE over-relaxation (SOR) factor
+    static const real omega_;
+    //! Database of inverse masses of atoms in the topology
+    std::vector<real> inverseMassesDatabase_;
+    //! Database of atom positions (three reals per atom)
+    std::vector<RVec> positionsDatabase_;
 };
 
 const real ShakeTest::tolerance_        = 1e-5;
@@ -256,10 +240,10 @@ const real ShakeTest::omega_            = 1.0;
 
 TEST_F(ShakeTest, ConstrainsOneBond)
 {
-    int                  numAtoms       = 2;
-    int                  numConstraints = 1;
+    int numAtoms       = 2;
+    int numConstraints = 1;
 
-    std::vector<int>     iatom;
+    std::vector<int> iatom;
     iatom.push_back(-1); // unused
     iatom.push_back(0);  // i atom index
     iatom.push_back(1);  // j atom index
@@ -269,18 +253,17 @@ TEST_F(ShakeTest, ConstrainsOneBond)
 
     std::vector<real> inverseMasses(inverseMassesDatabase_.begin(),
                                     inverseMassesDatabase_.begin() + numAtoms);
-    std::vector<real> positions(positionsDatabase_.begin(),
-                                positionsDatabase_.begin() + numAtoms * DIM);
+    std::vector<RVec> positions(positionsDatabase_.begin(), positionsDatabase_.begin() + numAtoms);
 
     runTest(numAtoms, numConstraints, iatom, constrainedDistances, inverseMasses, positions);
 }
 
 TEST_F(ShakeTest, ConstrainsTwoDisjointBonds)
 {
-    int                  numAtoms       = 4;
-    int                  numConstraints = 2;
+    int numAtoms       = 4;
+    int numConstraints = 2;
 
-    std::vector<int>     iatom;
+    std::vector<int> iatom;
     iatom.push_back(-1); // unused
     iatom.push_back(0);  // i atom index
     iatom.push_back(1);  // j atom index
@@ -295,18 +278,17 @@ TEST_F(ShakeTest, ConstrainsTwoDisjointBonds)
 
     std::vector<real> inverseMasses(inverseMassesDatabase_.begin(),
                                     inverseMassesDatabase_.begin() + numAtoms);
-    std::vector<real> positions(positionsDatabase_.begin(),
-                                positionsDatabase_.begin() + numAtoms * DIM);
+    std::vector<RVec> positions(positionsDatabase_.begin(), positionsDatabase_.begin() + numAtoms);
 
     runTest(numAtoms, numConstraints, iatom, constrainedDistances, inverseMasses, positions);
 }
 
 TEST_F(ShakeTest, ConstrainsTwoBondsWithACommonAtom)
 {
-    int                  numAtoms       = 3;
-    int                  numConstraints = 2;
+    int numAtoms       = 3;
+    int numConstraints = 2;
 
-    std::vector<int>     iatom;
+    std::vector<int> iatom;
     iatom.push_back(-1); // unused
     iatom.push_back(0);  // i atom index
     iatom.push_back(1);  // j atom index
@@ -321,18 +303,17 @@ TEST_F(ShakeTest, ConstrainsTwoBondsWithACommonAtom)
 
     std::vector<real> inverseMasses(inverseMassesDatabase_.begin(),
                                     inverseMassesDatabase_.begin() + numAtoms);
-    std::vector<real> positions(positionsDatabase_.begin(),
-                                positionsDatabase_.begin() + numAtoms * DIM);
+    std::vector<RVec> positions(positionsDatabase_.begin(), positionsDatabase_.begin() + numAtoms);
 
     runTest(numAtoms, numConstraints, iatom, constrainedDistances, inverseMasses, positions);
 }
 
 TEST_F(ShakeTest, ConstrainsThreeBondsWithCommonAtoms)
 {
-    int                  numAtoms       = 4;
-    int                  numConstraints = 3;
+    int numAtoms       = 4;
+    int numConstraints = 3;
 
-    std::vector<int>     iatom;
+    std::vector<int> iatom;
     iatom.push_back(-1); // unused
     iatom.push_back(0);  // i atom index
     iatom.push_back(1);  // j atom index
@@ -352,8 +333,7 @@ TEST_F(ShakeTest, ConstrainsThreeBondsWithCommonAtoms)
 
     std::vector<real> inverseMasses(inverseMassesDatabase_.begin(),
                                     inverseMassesDatabase_.begin() + numAtoms);
-    std::vector<real> positions(positionsDatabase_.begin(),
-                                positionsDatabase_.begin() + numAtoms * DIM);
+    std::vector<RVec> positions(positionsDatabase_.begin(), positionsDatabase_.begin() + numAtoms);
 
     runTest(numAtoms, numConstraints, iatom, constrainedDistances, inverseMasses, positions);
 }

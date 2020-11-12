@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2015,2018, by the GROMACS development team, led by
+# Copyright (c) 2015,2018,2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -65,14 +65,18 @@ if (SPHINX_EXECUTABLE AND NOT DEFINED SPHINX_EXECUTABLE_VERSION)
     set(SPHINX_EXECUTABLE_VERSION ${_version} CACHE INTERNAL "Version of ${SPHINX_EXECUTABLE}")
 endif()
 
-set(_find_deps_options)
-if (Sphinx_FIND_QUIETLY)
-    set(_find_deps_options QUIET)
-endif()
-include(FindPythonModule)
-find_python_module(pygments ${_find_deps_options})
-if (PYTHONMODULE_PYGMENTS)
-    set(Sphinx_pygments_FOUND 1)
+
+if (NOT Sphinx_pygments_FOUND)
+    # Check if pygments module is available via the Unix error code (ie. 0
+    # for success)
+    execute_process(COMMAND "${PYTHON_EXECUTABLE}" "-c"
+        "import pygments"
+        RESULT_VARIABLE _pygments_status
+        ERROR_QUIET
+        )
+    if (_pygments_status EQUAL 0)
+        set(Sphinx_pygments_FOUND TRUE CACHE BOOL "Whether pygments module is available for Sphinx")
+    endif()
 endif()
 
 include(FindPackageHandleStandardArgs)

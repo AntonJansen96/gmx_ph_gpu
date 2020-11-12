@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -41,57 +41,67 @@
 
 #include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/real.h"
+#include "gromacs/random/threefry.h"
 
 struct cphmd_general;
-struct inputrec;
-struct multi_lambda;
+struct t_inputrec;
+struct LambdaResidueCollection;
+struct t_lambdarec;
 struct t_mdatoms;
+struct LambdaResidues;
 
 /*! \libinternal
  * \brief This holds the constant pH data and provides methods for mdrun to interact with
  */
 class ConstantPH
 {
-    public:
-        ConstantPH(const t_inputrec &ir,
-                   const t_mdatoms  &mdatoms);
+public:
+    ConstantPH(const t_inputrec& ir, int natoms, const std::string& inputFileName);
 
-        ~ConstantPH();
+    ~ConstantPH();
 
-        //! Return the buffer to add electrostatic potential contributions to, to beindexed by local atom index
-        gmx::ArrayRef<real> potential()
-        {
-            return potential_;
-        }
+    //! Return the buffer to add electrostatic potential contributions to, to beindexed by local atom index
+    gmx::ArrayRef<real> potential() { return potential_; }
 
-        //! Returns the lambda atom indices
-        gmx::ArrayRef<const int> lambdaAtoms() const
-        {
-            return lambdaAtoms_;
-        }
+    //! Returns the lambda atom indices
+    gmx::ArrayRef<const int> lambdaAtoms() const { return lambdaAtoms_; }
 
-        //! Sets mdatoms->chargeA for particles coupled to lambda's
-        void setLambdaCharges(t_mdatoms *mdatoms);
-        
-        //! Update the lambda variables using the computed potential
-        //
-        // Returns the change in kinetic energy due to T-coupling
-        //
-        // TODO: Remove argument ir
-        real updateLambdas(const t_inputrec &ir,
-                           const double      t,
-						   const int64_t     step);
-    private:
-        std::unique_ptr<cphmd_general>  cphmd_gen_;
-        // TODO: Replace these plain pointers
-        multi_lambda                   *ml_;
-        multi_lambda                   *ml_temp_;
-        std::vector<int>                lambdaAtoms_;        // atoms part of a lambda group
-		std::vector<int>                lambdaAtomsIndex_;   // indices give lambda group of each atom
-        std::vector<real>               chargeA_;
-        std::vector<real>               chargeB_;
-        std::vector<real>               potential_;
-		std::vector<real>               dvdl_;               // dVdl sum for each lambda group (size = number of lambdas)
+    //! Sets mdatoms->chargeA for particles coupled to lambda's
+    void setLambdaCharges(t_mdatoms* mdatoms);
+
+    //! Update the lambda variables using the computed potential
+    //
+    // Returns the change in kinetic energy due to T-coupling
+    //
+    // TODO: Remove argument ir
+    real updateLambdas(const t_inputrec& ir, double t, int64_t step);
+
+    //! Need ugly access like this to populate data from checkpoint.
+    LambdaResidueCollection* lambdaResidueHandle() { return ml_.get(); }
+
+private:
+    std::unique_ptr<cphmd_general> cphmd_gen_;
+    // TODO: Replace these plain pointers
+    std::unique_ptr<LambdaResidueCollection> ml_;
+    std::vector<int>                         lambdaAtoms_;
+    std::vector<int>                         lambdaAtomsIndex_;
+    std::vector<real>                        chargeA_;
+    std::vector<real>                        chargeB_;
+    std::vector<real>  dvdl_; // dVdl sum for each lambda group (size = number of lambdas)
+    std::vector<real>  potential_;
+    const std::string& inputFileName_;
+    int                eLambdaThermostat_ = 0; // is equal to eLambdaTcVRESCALE, ugly but effective.
+    bool               useChargeConstraints_    = false;
+    bool               useMultiStateConstraits_ = false;
+    bool               isCalibrationRun_        = false;
 };
+
+constexpr int MAX_N_DVDL_COEFFS = 10;
+void          update_lambda(const t_inputrec&         ir,
+                            int64_t                   step,
+                            const cphmd_general&      cphmd_gen,
+                            LambdaResidues*           ml,
+                            gmx::ArrayRef<const real> pot);
+
 
 #endif

@@ -1,7 +1,7 @@
 # Python package sources
 
 This directory exists as a staging area supporting GROMACS enhancement
-[#2045](https://redmine.gromacs.org/issues/2045),
+[#2045](https://gitlab.com/gromacs/gromacs/-/issues/2045),
 which attempts to update the gmxapi efforts from GROMACS 2019,
 merge external repositories from
 https://github.com/kassonlab/gmxapi
@@ -42,7 +42,23 @@ Use `pytest` to run unit tests and integration tests.
     pytest test
 
 For additional discussion on packaging and distribution, see
-https://redmine.gromacs.org/issues/2896
+https://gitlab.com/gromacs/gromacs/-/issues/2896
+
+## Sample MD extension code
+
+`sample_restraint` is a subtree containing a complete CMake project for building
+pluggable GROMACS MD extensions for execution through gmxapi. Up to and
+including version 0.0.7 of the sample code, the sub-project lived at
+https://github.com/kassonlab/sample_restraint/ and was supported by GROMACS 2019.
+
+The GROMACS repository becomes the upstream source for the sample code for
+GROMACS releases 2020 and higher. Refer to [README.md](sample_restraint/README.md)
+in `python_packaging/sample_restraint` for more information.
+
+To use a plugin based on the sample restraint, you will need to build and install
+the gmxapi Python package (above).
+
+**todo** CookieCutter repo for easy forking.
 
 ## Docker and Travis-CI testing
 
@@ -91,7 +107,7 @@ Additional information in `python_packaging/docker/README.md`.
 
 Hint: the fork point from `master` and the current git ref can be set as environment variables:
 
-    FORKPOINT=$(git show -s --pretty=format:"%h" `git merge-base gerrit_master HEAD`)
+    FORKPOINT=$(git show -s --pretty=format:"%h" `git merge-base master HEAD`)
     REF=`git show -s --pretty=format:"%h"`
 
 ## External project code
@@ -108,7 +124,7 @@ Scikit-build is installed with Python packaging tools automatically with
 `pip install -r requirements.txt`, as above.
 
 Note: scikit-build is only required for convenient management of the Python
-build environment and packaging. See https://redmine.gromacs.org/issues/2896
+build environment and packaging. See https://gitlab.com/gromacs/gromacs/-/issues/2896
 
 # pybind11
 
@@ -132,3 +148,10 @@ Note: scikit-build can use CMake Toolchains to properly handle `pip` builds.
 
 The `pip install` options `--no-index` and `--find-links` allow for an offline stash of package archives so that
 satisfying dependencies for a new virtualenv does not require network access or lengthy build times.
+
+# Dependencies
+
+## OS X
+Some dependencies (notably, a Python installation itself) may require some fiddling
+with the XCode SDK.
+https://developer.apple.com/documentation/xcode_release_notes/xcode_10_release_notes#3035624

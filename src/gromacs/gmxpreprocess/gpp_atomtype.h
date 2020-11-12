@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2011,2014,2015,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2011,2014,2015,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -48,7 +48,8 @@
 
 #include <cstdio>
 
-#include "gromacs/utility/arrayref.h"
+#include <string>
+
 #include "gromacs/utility/classhelpers.h"
 #include "gromacs/utility/real.h"
 
@@ -59,169 +60,173 @@ class InteractionOfType;
 struct InteractionsOfType;
 struct t_symtab;
 
+namespace gmx
+{
+template<typename>
+class ArrayRef;
+}
+
 /*! \libinternal \brief
  * Storage of all atom types used during preprocessing of a simulation
  * input.
  */
 class PreprocessingAtomTypes
 {
-    public:
-        PreprocessingAtomTypes();
-        //! Move constructor.
-        PreprocessingAtomTypes(PreprocessingAtomTypes &&old) noexcept;
-        //! Move assignment constructor.
-        PreprocessingAtomTypes &operator=(PreprocessingAtomTypes &&old) noexcept;
+public:
+    PreprocessingAtomTypes();
+    //! Move constructor.
+    PreprocessingAtomTypes(PreprocessingAtomTypes&& old) noexcept;
+    //! Move assignment constructor.
+    PreprocessingAtomTypes& operator=(PreprocessingAtomTypes&& old) noexcept;
 
-        ~PreprocessingAtomTypes();
+    ~PreprocessingAtomTypes();
 
-        /*! \brief
-         *  Get atom type index for atom type name if present in the database, or NOTSET.
-         *
-         *  \todo The code should be changed to instead use a gmx::compat version
-         *  of std::optional to return an iterator to the element being searched,
-         *  or an empty optional construct if the entry has not been found.
-         *
-         *  \param[in] str Input string to search type for.
-         *  \returns Atomtype as integer.
-         */
-        int atomTypeFromName(const std::string &str) const;
+    /*! \brief
+     *  Get atom type index for atom type name if present in the database, or NOTSET.
+     *
+     *  \todo The code should be changed to instead use a gmx::compat version
+     *  of std::optional to return an iterator to the element being searched,
+     *  or an empty optional construct if the entry has not been found.
+     *
+     *  \param[in] str Input string to search type for.
+     *  \returns Atomtype as integer.
+     */
+    int atomTypeFromName(const std::string& str) const;
 
-        //! Get number of defined atom types.
-        size_t size() const;
+    //! Get number of defined atom types.
+    size_t size() const;
 
-        /*! \brief
-         * Get name of atom from internal atom type number.
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The type name.
-         */
-        const char *atomNameFromAtomType(int nt) const;
+    /*! \brief
+     * Get name of atom from internal atom type number.
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The type name.
+     */
+    const char* atomNameFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get normal mass of atom from internal atom type number.
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The mass for the atom or NOTSET.
-         */
-        real atomMassFromAtomType(int nt) const;
+    /*! \brief
+     * Get normal mass of atom from internal atom type number.
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The mass for the atom or NOTSET.
+     */
+    real atomMassFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get normal charge of atom from internal atom type number.
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The charge for the atom or NOTSET.
-         */
-        real atomChargeFromAtomType(int nt) const;
+    /*! \brief
+     * Get normal charge of atom from internal atom type number.
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The charge for the atom or NOTSET.
+     */
+    real atomChargeFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get particle type for atom type \p nt
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The particle type or NOTSET.
-         */
-        int atomParticleTypeFromAtomType(int nt) const;
+    /*! \brief
+     * Get particle type for atom type \p nt
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The particle type or NOTSET.
+     */
+    int atomParticleTypeFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get bond atom parameter of atom from internal atom type number.
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The bond atom parameter or NOTSET.
-         */
-        int bondAtomTypeFromAtomType(int nt) const;
+    /*! \brief
+     * Get bond atom parameter of atom from internal atom type number.
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The bond atom parameter or NOTSET.
+     */
+    int bondAtomTypeFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get atomic number of atom from internal atom type number.
-         *
-         * \param[in] nt Internal number of atom type.
-         * \returns The atomic number type or NOTSET.
-         */
-        int atomNumberFromAtomType(int nt) const;
+    /*! \brief
+     * Get atomic number of atom from internal atom type number.
+     *
+     * \param[in] nt Internal number of atom type.
+     * \returns The atomic number type or NOTSET.
+     */
+    int atomNumberFromAtomType(int nt) const;
 
-        /*! \brief
-         * Get the value of \p param of type \p nt.
-         *
-         * \param[in] param The parameter value to find.
-         * \param[in] nt The number of the type.
-         * \returns The value of the parameter or NOTSET.
-         */
-        real atomNonBondedParamFromAtomType(int nt, int param) const;
+    /*! \brief
+     * Get the value of \p param of type \p nt.
+     *
+     * \param[in] param The parameter value to find.
+     * \param[in] nt The number of the type.
+     * \returns The value of the parameter or NOTSET.
+     */
+    real atomNonBondedParamFromAtomType(int nt, int param) const;
 
-        /*! \brief
-         * If a value is within the range of the current types or not.
-         *
-         * \param[in] nt Value to check.
-         * \returns True if value is in range.
-         */
-        bool isSet(int nt) const;
+    /*! \brief
+     * If a value is within the range of the current types or not.
+     *
+     * \param[in] nt Value to check.
+     * \returns True if value is in range.
+     */
+    bool isSet(int nt) const;
 
-        /*! \brief
-         * Print data to file.
-         *
-         * \param[in] out File pointer.
-         */
-        void printTypes(FILE *out);
+    /*! \brief
+     * Print data to file.
+     *
+     * \param[in] out File pointer.
+     */
+    void printTypes(FILE* out);
 
-        /*! \brief
-         * Set the values of an existing atom type \p nt.
-         *
-         * \param[in] nt Type that should be set.
-         * \param[in] tab Symbol table.
-         * \param[in] a Atom information.
-         * \param[in] name Atom name.
-         * \param[in] nb Nonbonded parameters.
-         * \param[in] bondAtomType What kind of bonded interactions are there.
-         * \param[in] atomNumber Atomic number of the entry.
-         * \returns Number of the type set or NOTSET
-         */
-        int setType(int                      nt,
-                    t_symtab                *tab,
-                    const t_atom            &a,
-                    const std::string       &name,
-                    const InteractionOfType &nb,
-                    int                      bondAtomType,
-                    int                      atomNumber);
+    /*! \brief
+     * Set the values of an existing atom type \p nt.
+     *
+     * \param[in] nt Type that should be set.
+     * \param[in] tab Symbol table.
+     * \param[in] a Atom information.
+     * \param[in] name Atom name.
+     * \param[in] nb Nonbonded parameters.
+     * \param[in] bondAtomType What kind of bonded interactions are there.
+     * \param[in] atomNumber Atomic number of the entry.
+     * \returns Number of the type set or NOTSET
+     */
+    int setType(int                      nt,
+                t_symtab*                tab,
+                const t_atom&            a,
+                const std::string&       name,
+                const InteractionOfType& nb,
+                int                      bondAtomType,
+                int                      atomNumber);
 
-        /*! \brief
-         * Add new atom type to database.
-         *
-         * \param[in] tab Symbol table.
-         * \param[in] a Atom information.
-         * \param[in] name Atom name.
-         * \param[in] nb Nonbonded parameters.
-         * \param[in] bondAtomType What kind of bonded interactions are there.
-         * \param[in] atomNumber Atomic number of the entry.
-         * \returns Number of entries in database.
-         */
-        int addType(t_symtab                *tab,
-                    const t_atom            &a,
-                    const std::string       &name,
-                    const InteractionOfType &nb,
-                    int                      bondAtomType,
-                    int                      atomNumber);
+    /*! \brief
+     * Add new atom type to database.
+     *
+     * \param[in] tab Symbol table.
+     * \param[in] a Atom information.
+     * \param[in] name Atom name.
+     * \param[in] nb Nonbonded parameters.
+     * \param[in] bondAtomType What kind of bonded interactions are there.
+     * \param[in] atomNumber Atomic number of the entry.
+     * \returns Number of entries in database.
+     */
+    int addType(t_symtab*                tab,
+                const t_atom&            a,
+                const std::string&       name,
+                const InteractionOfType& nb,
+                int                      bondAtomType,
+                int                      atomNumber);
 
-        /*! \brief
-         * Renumber existing atom type entries.
-         *
-         * \param[in] plist List of parameters.
-         * \param[in] mtop Global topology.
-         * \param[inout] wallAtomType Atom types of wall atoms, which may also be renumbered
-         * \param[in] verbose If we want to print additional info.
-         */
-        void renumberTypes(gmx::ArrayRef<InteractionsOfType>        plist,
-                           gmx_mtop_t                              *mtop,
-                           int                                     *wallAtomType,
-                           bool                                     verbose);
+    /*! \brief
+     * Renumber existing atom type entries.
+     *
+     * \param[in] plist List of parameters.
+     * \param[in] mtop Global topology.
+     * \param[inout] wallAtomType Atom types of wall atoms, which may also be renumbered
+     * \param[in] verbose If we want to print additional info.
+     */
+    void renumberTypes(gmx::ArrayRef<InteractionsOfType> plist, gmx_mtop_t* mtop, int* wallAtomType, bool verbose);
 
-        /*! \brief
-         * Copy information to other structure.
-         *
-         * \param[inout] atypes Other datastructure to copy to.
-         */
-        void copyTot_atomtypes(t_atomtypes *atypes) const;
-    private:
-        class Impl;
-        //! Pimpl that holds the data.
-        gmx::PrivateImplPointer<Impl> impl_;
+    /*! \brief
+     * Copy information to other structure.
+     *
+     * \param[inout] atypes Other datastructure to copy to.
+     */
+    void copyTot_atomtypes(t_atomtypes* atypes) const;
+
+private:
+    class Impl;
+    //! Pimpl that holds the data.
+    gmx::PrivateImplPointer<Impl> impl_;
 };
 
 #endif

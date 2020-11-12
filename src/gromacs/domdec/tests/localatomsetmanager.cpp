@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -51,6 +51,7 @@
 #include <gtest/gtest.h>
 
 #include "gromacs/domdec/localatomset.h"
+#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/exceptions.h"
 
 #include "testutils/testasserts.h"
@@ -58,26 +59,29 @@
 namespace gmx
 {
 
+extern template LocalAtomSet LocalAtomSetManager::add<void, void>(ArrayRef<const int> globalAtomIndex);
+
 namespace test
 {
 
 TEST(LocalAtomSetManager, CanAddEmptyLocalAtomSet)
 {
-    LocalAtomSetManager       manager;
-    const std::vector<int>    emptyIndex = {};
-    LocalAtomSet              emptyGroup(manager.add(emptyIndex));
-    const std::vector<int>    globalIndexFromGroup(emptyGroup.globalIndex().begin(), emptyGroup.globalIndex().end());
+    LocalAtomSetManager    manager;
+    const std::vector<int> emptyIndex = {};
+    LocalAtomSet           emptyGroup(manager.add(emptyIndex));
+    const std::vector<int> globalIndexFromGroup(emptyGroup.globalIndex().begin(),
+                                                emptyGroup.globalIndex().end());
     ASSERT_THAT(globalIndexFromGroup, testing::ContainerEq(emptyIndex));
 }
 
 TEST(LocalAtomSetManager, CanAddandReadLocalAtomSetIndices)
 {
-    LocalAtomSetManager    manager;
+    LocalAtomSetManager manager;
 
-    const std::vector<int> index = {5, 10};
+    const std::vector<int> index = { 5, 10 };
     LocalAtomSet           newGroup(manager.add(index));
     std::vector<int>       readIndex;
-    for (const auto &i : newGroup.localIndex())
+    for (const auto& i : newGroup.localIndex())
     {
         readIndex.push_back(i);
     }

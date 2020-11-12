@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2011-2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -52,32 +52,44 @@
  */
 #include "gmxpre.h"
 
+#include "config.h"
+
 #include <memory>
 
 #include "gromacs/commandline/pargs.h"
-#include "gromacs/compat/pointers.h"
 #include "gromacs/domdec/options.h"
 #include "gromacs/fileio/gmxfio.h"
-#include "gromacs/gmxlib/network.h"
+#include "gromacs/hardware/detecthardware.h"
 #include "gromacs/mdrun/legacymdrunoptions.h"
-#include "gromacs/mdrun/logging.h"
 #include "gromacs/mdrun/runner.h"
 #include "gromacs/mdrun/simulationcontext.h"
-#include "gromacs/mdtypes/commrec.h"
+#include "gromacs/mdrunutility/handlerestart.h"
+#include "gromacs/mdrunutility/logging.h"
+#include "gromacs/mdrunutility/multisim.h"
 #include "gromacs/utility/arrayref.h"
-#include "gromacs/utility/smalloc.h"
+#include "gromacs/utility/basenetwork.h"
+#include "gromacs/utility/physicalnodecommunicator.h"
 
 #include "mdrun_main.h"
 
 namespace gmx
 {
 
-//! Implements C-style main function for mdrun
-int gmx_mdrun(int argc, char *argv[])
+int gmx_mdrun(int argc, char* argv[])
 {
-    auto                     mdModules = std::make_unique<MDModules>();
+    // Set up the communicator, where possible (see docs for
+    // SimulationContext).
+    MPI_Comm                 communicator = GMX_LIB_MPI ? MPI_COMM_WORLD : MPI_COMM_NULL;
+    PhysicalNodeCommunicator physicalNodeCommunicator(communicator, gmx_physicalnode_id_hash());
+    std::unique_ptr<gmx_hw_info_t> hwinfo = gmx_detect_hardware(physicalNodeCommunicator);
+    return gmx_mdrun(communicator, *hwinfo, argc, argv);
+}
 
-    std::vector<const char *>desc = {
+int gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int argc, char* argv[])
+{
+    auto mdModules = std::make_unique<MDModules>();
+
+    std::vector<const char*> desc = {
         "[THISMODULE] is the main computational chemistry engine",
         "within GROMACS. Obviously, it performs Molecular Dynamics simulations,",
         "but it can also perform Stochastic Dynamics, Energy Minimization,",
@@ -204,35 +216,29 @@ int gmx_mdrun(int argc, char *argv[])
         "pulling is used."
     };
 
-    LegacyMdrunOptions       options;
-
-    // pointer-to-t_commrec is the de facto handle type for communications record.
-    // \todo Define the ownership and lifetime management semantics for a communication record, handle or value type.
-    options.cr = init_commrec();
+    LegacyMdrunOptions options;
 
     if (options.updateFromCommandLine(argc, argv, desc) == 0)
     {
         return 0;
     }
 
-    if (MASTER(options.cr))
-    {
-        options.logFileGuard = openLogFile(ftp2fn(efLOG,
-                                                  options.filenames.size(),
-                                                  options.filenames.data()),
-                                           options.mdrunOptions.continuationOptions.appendFiles);
-    }
+    ArrayRef<const std::string> multiSimDirectoryNames =
+            opt2fnsIfOptionSet("-multidir", ssize(options.filenames), options.filenames.data());
 
-    /* The SimulationContext is a resource owned by the client code.
-     * A more complete design should address handles to resources with appropriate
-     * lifetimes and invariants for the resources allocated to the client,
-     * to the current simulation and to scheduled tasks within the simulation.
-     *
-     * \todo Clarify Context lifetime-management requirements and reconcile with scoped ownership.
-     *
-     * \todo Take ownership of and responsibility for communications record (cr).
-     */
-    auto simulationContext = createSimulationContext(options.cr);
+    // The SimulationContext is necessary with gmxapi so that
+    // resources owned by the client code can have suitable
+    // lifetime. The gmx wrapper binary uses the same infrastructure,
+    // but the lifetime is now trivially that of the invocation of the
+    // wrapper binary.
+    SimulationContext simulationContext(communicator, multiSimDirectoryNames);
+
+    StartingBehavior startingBehavior        = StartingBehavior::NewSimulation;
+    LogFilePtr       logFileGuard            = nullptr;
+    gmx_multisim_t*  ms                      = simulationContext.multiSimulation_.get();
+    std::tie(startingBehavior, logFileGuard) = handleRestart(
+            findIsSimulationMasterRank(ms, communicator), communicator, ms,
+            options.mdrunOptions.appendingBehavior, ssize(options.filenames), options.filenames.data());
 
     /* The named components for the builder exposed here are descriptive of the
      * state of mdrun at implementation and are not intended to be prescriptive
@@ -246,32 +252,32 @@ int gmx_mdrun(int argc, char *argv[])
      * details to future optimizations.
      */
     auto builder = MdrunnerBuilder(std::move(mdModules),
-                                   compat::not_null<decltype( &simulationContext)>(&simulationContext));
-    builder.addSimulationMethod(options.mdrunOptions, options.pforce);
+                                   compat::not_null<SimulationContext*>(&simulationContext));
+    builder.addHardwareDetectionResult(&hwinfo);
+    builder.addSimulationMethod(options.mdrunOptions, options.pforce, startingBehavior);
     builder.addDomainDecomposition(options.domdecOptions);
     // \todo pass by value
     builder.addNonBonded(options.nbpu_opt_choices[0]);
     // \todo pass by value
     builder.addElectrostatics(options.pme_opt_choices[0], options.pme_fft_opt_choices[0]);
     builder.addBondedTaskAssignment(options.bonded_opt_choices[0]);
+    builder.addUpdateTaskAssignment(options.update_opt_choices[0]);
     builder.addNeighborList(options.nstlist_cmdline);
     builder.addReplicaExchange(options.replExParams);
-    // \todo take ownership of multisim resources (ms)
-    builder.addMultiSim(options.ms);
-    // \todo Provide parallelism resources through SimulationContext.
     // Need to establish run-time values from various inputs to provide a resource handle to Mdrunner
     builder.addHardwareOptions(options.hw_opt);
     // \todo File names are parameters that should be managed modularly through further factoring.
     builder.addFilenames(options.filenames);
+    builder.addInput(makeSimulationInput(options));
     // Note: The gmx_output_env_t life time is not managed after the call to parse_common_args.
     // \todo Implement lifetime management for gmx_output_env_t.
     // \todo Output environment should be configured outside of Mdrunner and provided as a resource.
     builder.addOutputEnvironment(options.oenv);
-    builder.addLogFile(options.logFileGuard.get());
+    builder.addLogFile(logFileGuard.get());
 
     auto runner = builder.build();
 
     return runner.mdrunner();
 }
 
-}
+} // namespace gmx

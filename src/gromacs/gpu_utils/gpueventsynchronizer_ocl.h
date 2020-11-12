@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -41,10 +41,12 @@
 #ifndef GMX_GPU_UTILS_GPUEVENTSYNCHRONIZER_OCL_H
 #define GMX_GPU_UTILS_GPUEVENTSYNCHRONIZER_OCL_H
 
-#include "gromacs/gpu_utils/gputraits_ocl.h"
-#include "gromacs/gpu_utils/oclutils.h"
-#include "gromacs/utility/exceptions.h"
-#include "gromacs/utility/gmxassert.h"
+#ifndef DOXYGEN
+
+#    include "gromacs/gpu_utils/gputraits_ocl.h"
+#    include "gromacs/gpu_utils/oclutils.h"
+#    include "gromacs/utility/exceptions.h"
+#    include "gromacs/utility/gmxassert.h"
 
 /*! \libinternal \brief
  * A class which allows for CPU thread to mark and wait for certain GPU stream execution point.
@@ -61,80 +63,83 @@
  */
 class GpuEventSynchronizer
 {
-    public:
-        //! A constructor
-        GpuEventSynchronizer() : event_(nullptr){}
-        //! A destructor
-        ~GpuEventSynchronizer()
+public:
+    //! A constructor
+    GpuEventSynchronizer() : event_(nullptr) {}
+    //! A destructor
+    ~GpuEventSynchronizer()
+    {
+        // This additional code only prevents cl_event leak in an unlikely situation of destructor
+        // being called after markEvent() but before waitForEvent() / enqueueWaitEvent().
+        if (event_)
         {
-            // This additional code only prevents cl_event leak in an unlikely situation of destructor
-            // being called after markEvent() but before waitForEvent() / enqueueWaitEvent().
-            if (event_)
-            {
-                ensureReferenceCount(event_, 1);
-                clReleaseEvent(event_);
-            }
+            clReleaseEvent(event_);
         }
-        //! No copying
-        GpuEventSynchronizer(const GpuEventSynchronizer &)       = delete;
-        //! No assignment
-        GpuEventSynchronizer &operator=(GpuEventSynchronizer &&) = delete;
-        //! Moving is disabled but can be considered in the future if needed
-        GpuEventSynchronizer(GpuEventSynchronizer &&)            = delete;
+    }
+    //! No copying
+    GpuEventSynchronizer(const GpuEventSynchronizer&) = delete;
+    //! No assignment
+    GpuEventSynchronizer& operator=(GpuEventSynchronizer&&) = delete;
+    //! Moving is disabled but can be considered in the future if needed
+    GpuEventSynchronizer(GpuEventSynchronizer&&) = delete;
 
-        /*! \brief Marks the synchronization point in the \p stream.
-         * Should be called first and then followed by waitForEvent().
-         */
-        inline void markEvent(CommandStream stream)
+    /*! \brief Marks the synchronization point in the \p stream.
+     * Should be called first and then followed by waitForEvent().
+     */
+    inline void markEvent(const DeviceStream& deviceStream)
+    {
+        GMX_ASSERT(nullptr == event_, "Do not call markEvent more than once!");
+        cl_int clError = clEnqueueMarkerWithWaitList(deviceStream.stream(), 0, nullptr, &event_);
+        if (CL_SUCCESS != clError)
         {
-            GMX_ASSERT(nullptr == event_, "Do not call markEvent more than once!");
-            cl_int clError = clEnqueueMarkerWithWaitList(stream, 0, nullptr, &event_);
-            if (CL_SUCCESS != clError)
-            {
-                GMX_THROW(gmx::InternalError("Failed to enqueue the GPU synchronization event: " + ocl_get_error_string(clError)));
-            }
+            GMX_THROW(gmx::InternalError("Failed to enqueue the GPU synchronization event: "
+                                         + ocl_get_error_string(clError)));
         }
-        /*! \brief Synchronizes the host thread on the marked event. */
-        inline void waitForEvent()
+    }
+    /*! \brief Synchronizes the host thread on the marked event. */
+    inline void waitForEvent()
+    {
+        cl_int clError = clWaitForEvents(1, &event_);
+        if (CL_SUCCESS != clError)
         {
-            cl_int clError = clWaitForEvents(1, &event_);
-            if (CL_SUCCESS != clError)
-            {
-                GMX_THROW(gmx::InternalError("Failed to synchronize on the GPU event: " + ocl_get_error_string(clError)));
-            }
-
-            releaseEvent();
-        }
-        /*! \brief Enqueues a wait for the recorded event in stream \p stream
-         *
-         *  After enqueue, the associated event is released, so this method should
-         *  be only called once per markEvent() call.
-         */
-        inline void enqueueWaitEvent(CommandStream stream)
-        {
-            cl_int clError = clEnqueueBarrierWithWaitList(stream, 1, &event_, nullptr);
-            if (CL_SUCCESS != clError)
-            {
-                GMX_THROW(gmx::InternalError("Failed to enqueue device barrier for the GPU event: " + ocl_get_error_string(clError)));
-            }
-
-            releaseEvent();
+            GMX_THROW(gmx::InternalError("Failed to synchronize on the GPU event: "
+                                         + ocl_get_error_string(clError)));
         }
 
-    private:
-        inline void releaseEvent()
+        releaseEvent();
+    }
+    /*! \brief Enqueues a wait for the recorded event in stream \p stream
+     *
+     *  After enqueue, the associated event is released, so this method should
+     *  be only called once per markEvent() call.
+     */
+    inline void enqueueWaitEvent(const DeviceStream& deviceStream)
+    {
+        cl_int clError = clEnqueueBarrierWithWaitList(deviceStream.stream(), 1, &event_, nullptr);
+        if (CL_SUCCESS != clError)
         {
-            // Reference count can't be checked after the event's released, it seems (segfault on NVIDIA).
-            ensureReferenceCount(event_, 1);
-            cl_int clError = clReleaseEvent(event_);
-            if (CL_SUCCESS != clError)
-            {
-                GMX_THROW(gmx::InternalError("Failed to release the GPU event: " + ocl_get_error_string(clError)));
-            }
-            event_ = nullptr;
+            GMX_THROW(gmx::InternalError("Failed to enqueue device barrier for the GPU event: "
+                                         + ocl_get_error_string(clError)));
         }
 
-        cl_event event_;
+        releaseEvent();
+    }
+
+private:
+    inline void releaseEvent()
+    {
+        cl_int clError = clReleaseEvent(event_);
+        if (CL_SUCCESS != clError)
+        {
+            GMX_THROW(gmx::InternalError("Failed to release the GPU event: "
+                                         + ocl_get_error_string(clError)));
+        }
+        event_ = nullptr;
+    }
+
+    cl_event event_;
 };
+
+#endif
 
 #endif

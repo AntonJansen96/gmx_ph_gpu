@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -71,21 +71,21 @@ enum class CoordinateFileFlags : unsigned long
      * Sets the flags to default setting to make sure all output methods
      * are supported.
      */
-    Base = 1<<0,
+    Base = 1 << 0,
     /*! \brief
      * Requires output method to support force output.
      *
      * If set, only output methods supporting writing of forces will work,
      * others will generate an invalid input error.
      */
-    RequireForceOutput     = 1<<1,
+    RequireForceOutput = 1 << 1,
     /*! \brief
      * Requires output method to support velocity output.
      *
      * If set, only writing to files that support velocity output will succeed.
      * Other writing methods will generate an error.
      */
-    RequireVelocityOutput = 1<<2,
+    RequireVelocityOutput = 1 << 2,
     /*! \brief
      * Requires support for connection information in output format.
      *
@@ -93,36 +93,40 @@ enum class CoordinateFileFlags : unsigned long
      * This means for now that only PDB and TNG files can be written. Other file writing
      * methods will fail.
      */
-    RequireAtomConnections = 1<<3,
+    RequireAtomConnections = 1 << 3,
     /*! \brief
      * Requires that output format supports the writing of atom information to the file.
      *
      * If set, files will only be written if they can output the information from t_atoms
      * and otherwise create an error while writing.
      */
-    RequireAtomInformation = 1<<4,
+    RequireAtomInformation = 1 << 4,
     /*! \brief
      * Requires that output format supports writing user-specified output precision.
      *
      * If set, output will only be written if the format supports the writing
      * of custom precision of the included data.
      */
-    RequireChangedOutputPrecision = 1<<5,
+    RequireChangedOutputPrecision = 1 << 5,
     /*! \brief
      * Requires that output format supports writing time to the file.
      */
-    RequireNewFrameTime = 1<<6,
+    RequireNewFrameStartTime = 1 << 6,
+    /*! \brief
+     * Requires that output format supports writing time to the file.
+     */
+    RequireNewFrameTimeStep = 1 << 7,
     /*! \brief
      * Requires that output format supports writing box information.
      */
-    RequireNewBox = 1<<7,
+    RequireNewBox = 1 << 8,
     /*! \brief
      * Requires output to support changes to selection of coordinates.
      *
      * Default for most methods, will need to be able to write coordinates to
      * output file or generate an error.
      */
-    RequireCoordianteSelection = 1<<8,
+    RequireCoordinateSelection = 1 << 9,
     //! Needed for enumeration array.
     Count
 };
@@ -134,15 +138,12 @@ inline unsigned long convertFlag(CoordinateFileFlags flag)
 }
 
 //! Enum class for setting basic flags in a t_trxframe
-enum class ChangeSettingType
+enum class ChangeSettingType : int
 {
     PreservedIfPresent,
     Always,
-    Never
-};
-//! Mapping for enums from \ref ChangeSettingType.
-const char *const cChangeSettingTypeEnum[] = {
-    "preserved-if-present", "always", "never"
+    Never,
+    Count
 };
 
 //! Enum class for t_atoms settings
@@ -151,23 +152,16 @@ enum class ChangeAtomsType
     PreservedIfPresent,
     AlwaysFromStructure,
     Never,
-    Always
-};
-
-//! Mapping for enums from \ref ChangeAtomsType.
-const char *const cChangeAtomsTypeEnum[] = {
-    "preserved-if-present", "always-from-structure", "never", "always"
+    Always,
+    Count
 };
 
 //! Enum class for setting fields new or not.
 enum class ChangeFrameInfoType
 {
     PreservedIfPresent,
-    Always
-};
-//! Mapping for enums from \ref ChangeFrameInfoType.
-const char *const cChangeFrameInfoTypeEnum[] = {
-    "preserved-if-present", "always"
+    Always,
+    Count
 };
 
 //! Enum class for setting frame time from user input.
@@ -176,14 +170,9 @@ enum class ChangeFrameTimeType
     PreservedIfPresent,
     StartTime,
     TimeStep,
-    Both
+    Both,
+    Count
 };
-
-//! Mapping for values from \ref ChangeFrameTimeType.
-const char *const cChangeFrameTimeTypeEnum[] = {
-    "preserved-if-present", "starttime", "timestep", "both"
-};
-
 
 } // namespace gmx
 

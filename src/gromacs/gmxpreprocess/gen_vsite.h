@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -38,8 +38,9 @@
 #ifndef GMX_GMXPREPROCESS_GEN_VSITE_H
 #define GMX_GMXPREPROCESS_GEN_VSITE_H
 
+#include <vector>
+
 #include "gromacs/math/vectypes.h"
-#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/real.h"
 
 class PreprocessingAtomTypes;
@@ -48,15 +49,26 @@ struct InteractionsOfType;
 struct PreprocessResidue;
 struct t_symtab;
 
+namespace gmx
+{
+template<typename>
+class ArrayRef;
+}
+
 /* stuff for pdb2gmx */
 
-void do_vsites(gmx::ArrayRef<const PreprocessResidue> rtpFFDB, PreprocessingAtomTypes *atype,
-               t_atoms *at, t_symtab *symtab, std::vector<gmx::RVec> *x,
-               gmx::ArrayRef<InteractionsOfType> plist, int *dummy_type[], int *cgnr[],
-               real mHmult, bool bVSiteAromatics,
-               const char *ffdir);
+void do_vsites(gmx::ArrayRef<const PreprocessResidue> rtpFFDB,
+               PreprocessingAtomTypes*                atype,
+               t_atoms*                               at,
+               t_symtab*                              symtab,
+               std::vector<gmx::RVec>*                x,
+               gmx::ArrayRef<InteractionsOfType>      plist,
+               int*                                   dummy_type[],
+               int*                                   cgnr[],
+               real                                   mHmult,
+               bool                                   bVSiteAromatics,
+               const char*                            ffdir);
 
-void do_h_mass(InteractionsOfType *psb, int vsite_type[], t_atoms *at, real mHmult,
-               bool bDeuterate);
+void do_h_mass(InteractionsOfType* psb, int vsite_type[], t_atoms* at, real mHmult, bool bDeuterate);
 
 #endif

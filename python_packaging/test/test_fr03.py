@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2019, by the GROMACS development team, led by
+# Copyright (c) 2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -35,16 +35,13 @@
 """Test gmxapi functionality described in roadmap.rst."""
 
 import os
+import shutil
 import stat
 import tempfile
 
-import pytest
-
 import gmxapi as gmx
-from gmxapi.version import has_feature
 
-@pytest.mark.skipif(not has_feature('fr3'),
-                   reason="Feature level not met.")
+
 def test_fr3():
     """FR3: Output proxy can be used as input."""
     with tempfile.TemporaryDirectory() as directory:
@@ -54,7 +51,7 @@ def test_fr3():
         # Make a shell script that acts like the type of tool we are wrapping.
         scriptname = os.path.join(directory, 'clicommand.sh')
         with open(scriptname, 'w') as fh:
-            fh.write('\n'.join(['#!' + util.which('bash'),
+            fh.write('\n'.join(['#!' + shutil.which('bash'),
                                 '# Concatenate an input file and a string argument to an output file.',
                                 '# Mock a utility with the tested syntax.',
                                 '#     clicommand.sh "some words" -i inputfile -o outputfile',
@@ -62,16 +59,16 @@ def test_fr3():
         os.chmod(scriptname, stat.S_IRWXU)
 
         line1 = 'first line'
-        filewriter1 = commandline_operation(scriptname,
-                                            arguments=[line1],
-                                            input_files={'-i': os.devnull},
-                                            output_files={'-o': file1})
+        filewriter1 = gmx.commandline_operation(scriptname,
+                                                arguments=[line1],
+                                                input_files={'-i': os.devnull},
+                                                output_files={'-o': file1})
 
         line2 = 'second line'
-        filewriter2 = commandline_operation(scriptname,
-                                            arguments=[line2],
-                                            input_files={'-i': filewriter1.output.file['-o']},
-                                            output_files={'-o': file2})
+        filewriter2 = gmx.commandline_operation(scriptname,
+                                                arguments=[line2],
+                                                input_files={'-i': filewriter1.output.file['-o']},
+                                                output_files={'-o': file2})
 
         filewriter2.run()
         # Check that the files have the expected lines

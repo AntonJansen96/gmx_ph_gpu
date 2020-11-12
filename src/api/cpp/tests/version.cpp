@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018, by the GROMACS development team, led by
+ * Copyright (c) 2018,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -35,6 +35,8 @@
 
 #include <climits>
 
+#include <gtest/gtest.h>
+
 #include "gmxapi/version.h"
 #include "testingconfiguration.h"
 
@@ -64,24 +66,12 @@ const int current_patch = gmxapi::c_patchVersion;
  */
 TEST_F(GmxApiTest, SaneVersionComparisons)
 {
-    EXPECT_TRUE(Version::isAtLeast(0,
-                                   0,
-                                   0));
-    EXPECT_FALSE(Version::isAtLeast(SHRT_MAX,
-                                    SHRT_MAX,
-                                    SHRT_MAX));
-    EXPECT_TRUE(Version::isAtLeast(current_major,
-                                   current_minor,
-                                   current_patch));
-    EXPECT_FALSE(Version::isAtLeast(current_major + 1,
-                                    current_minor,
-                                    current_patch));
-    EXPECT_FALSE(Version::isAtLeast(current_major,
-                                    current_minor + 1,
-                                    current_patch));
-    EXPECT_FALSE(Version::isAtLeast(current_major,
-                                    current_minor,
-                                    current_patch + 1));
+    EXPECT_TRUE(Version::isAtLeast(0, 0, 0));
+    EXPECT_FALSE(Version::isAtLeast(SHRT_MAX, SHRT_MAX, SHRT_MAX));
+    EXPECT_TRUE(Version::isAtLeast(current_major, current_minor, current_patch));
+    EXPECT_FALSE(Version::isAtLeast(current_major + 1, current_minor, current_patch));
+    EXPECT_FALSE(Version::isAtLeast(current_major, current_minor + 1, current_patch));
+    EXPECT_FALSE(Version::isAtLeast(current_major, current_minor, current_patch + 1));
 }
 
 /*!

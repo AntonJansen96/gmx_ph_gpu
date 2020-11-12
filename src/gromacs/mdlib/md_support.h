@@ -3,7 +3,8 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017 The GROMACS development team.
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -38,99 +39,96 @@
 #define GMX_MDLIB_MD_SUPPORT_H
 
 #include "gromacs/mdlib/vcm.h"
+#include "gromacs/mdtypes/md_enums.h"
 #include "gromacs/timing/wallcycle.h"
 
 struct gmx_ekindata_t;
 struct gmx_enerdata_t;
 struct gmx_global_stat;
-struct gmx_multisim_t;
 struct gmx_signalling_t;
 struct t_extmass;
 struct t_forcerec;
 struct t_grpopts;
 struct t_inputrec;
-struct t_lambda;
 struct t_nrnb;
 class t_state;
 struct t_trxframe;
 
 namespace gmx
 {
+template<typename T>
+class ArrayRef;
 class Constraints;
 class MDLogger;
 class SimulationSignaller;
-}
+} // namespace gmx
 
 /* Define a number of flags to better control the information
  * passed to compute_globals in md.c and global_stat.
  */
 
-/* we are initializing and not yet in the actual MD loop */
-#define CGLO_INITIALIZATION (1<<1)
 /* we are computing the kinetic energy from average velocities */
-#define CGLO_EKINAVEVEL     (1<<2)
+#define CGLO_EKINAVEVEL (1u << 2u)
 /* we are removing the center of mass momenta */
-#define CGLO_STOPCM         (1<<3)
+#define CGLO_STOPCM (1u << 3u)
 /* bGStat is defined in do_md */
-#define CGLO_GSTAT          (1<<4)
+#define CGLO_GSTAT (1u << 4u)
 /* Sum the energy terms in global computation */
-#define CGLO_ENERGY         (1<<6)
+#define CGLO_ENERGY (1u << 6u)
 /* Sum the kinetic energy terms in global computation */
-#define CGLO_TEMPERATURE    (1<<7)
+#define CGLO_TEMPERATURE (1u << 7u)
 /* Sum the kinetic energy terms in global computation */
-#define CGLO_PRESSURE       (1<<8)
+#define CGLO_PRESSURE (1u << 8u)
 /* Sum the constraint term in global computation */
-#define CGLO_CONSTRAINT     (1<<9)
+#define CGLO_CONSTRAINT (1u << 9u)
 /* Reading ekin from the trajectory */
-#define CGLO_READEKIN       (1<<10)
+#define CGLO_READEKIN (1u << 10u)
 /* we need to reset the ekin rescaling factor here */
-#define CGLO_SCALEEKIN      (1<<11)
+#define CGLO_SCALEEKIN (1u << 11u)
 /* After a new DD partitioning, we need to set a flag to schedule
  * global reduction of the total number of bonded interactions that
  * will be computed, to check none are missing. */
-#define CGLO_CHECK_NUMBER_OF_BONDED_INTERACTIONS (1<<12)
+#define CGLO_CHECK_NUMBER_OF_BONDED_INTERACTIONS (1u << 12u)
 
 
 /*! \brief Return the number of steps that will take place between
  * intra-simulation communications, given the constraints of the
  * inputrec. */
-int computeGlobalCommunicationPeriod(const gmx::MDLogger &mdlog,
-                                     t_inputrec          *ir,
-                                     const t_commrec     *cr);
+int computeGlobalCommunicationPeriod(const gmx::MDLogger& mdlog, t_inputrec* ir, const t_commrec* cr);
 
-/*! \brief Return true if the \p value is equal across the set of multi-simulations
- *
- * \todo This duplicates some of check_multi_int. Consolidate. */
-bool multisim_int_all_are_equal(const gmx_multisim_t *ms,
-                                int64_t               value);
-
-void rerun_parallel_comm(t_commrec *cr, t_trxframe *fr,
-                         gmx_bool *bLastStep);
+void rerun_parallel_comm(t_commrec* cr, t_trxframe* fr, gmx_bool* bLastStep);
 
 //! \brief Allocate and initialize node-local state entries
-void set_state_entries(t_state *state, const t_inputrec *ir);
+void set_state_entries(t_state* state, const t_inputrec* ir, bool useModularSimulator);
 
-/* Set the lambda values in the global state from a frame read with rerun */
-void setCurrentLambdasRerun(int64_t step, const t_lambda *fepvals,
-                            const t_trxframe *rerun_fr, const double *lam0,
-                            t_state *globalState);
-
-/* Set the lambda values at each step of mdrun when they change */
-void setCurrentLambdasLocal(int64_t step, const t_lambda *fepvals,
-                            const double *lam0, t_state *state);
-
-int multisim_min(const gmx_multisim_t *ms, int nmin, int n);
-/* Set an appropriate value for n across the whole multi-simulation */
-
-void compute_globals(FILE *fplog, gmx_global_stat *gstat, t_commrec *cr, t_inputrec *ir,
-                     t_forcerec *fr, gmx_ekindata_t *ekind,
-                     t_state *state, t_mdatoms *mdatoms,
-                     t_nrnb *nrnb, t_vcm *vcm, gmx_wallcycle_t wcycle,
-                     gmx_enerdata_t *enerd, tensor force_vir, tensor shake_vir, tensor total_vir,
-                     tensor pres, rvec mu_tot, gmx::Constraints *constr,
-                     gmx::SimulationSignaller *signalCoordinator,
-                     matrix box, int *totalNumberOfBondedInteractions,
-                     gmx_bool *bSumEkinhOld, int flags);
-/* Compute global variables during integration */
+/* Compute global variables during integration
+ *
+ * Coordinates x are needed for kinetic energy calculation with cosine accelation
+ * and for COM removal with rotational and acceleration correction modes.
+ * Velocities v are needed for kinetic energy calculation and for COM removal.
+ */
+void compute_globals(gmx_global_stat*               gstat,
+                     t_commrec*                     cr,
+                     const t_inputrec*              ir,
+                     t_forcerec*                    fr,
+                     gmx_ekindata_t*                ekind,
+                     gmx::ArrayRef<const gmx::RVec> x,
+                     gmx::ArrayRef<const gmx::RVec> v,
+                     const matrix                   box,
+                     const t_mdatoms*               mdatoms,
+                     t_nrnb*                        nrnb,
+                     t_vcm*                         vcm,
+                     gmx_wallcycle_t                wcycle,
+                     gmx_enerdata_t*                enerd,
+                     tensor                         force_vir,
+                     tensor                         shake_vir,
+                     tensor                         total_vir,
+                     tensor                         pres,
+                     gmx::Constraints*              constr,
+                     gmx::SimulationSignaller*      signalCoordinator,
+                     const matrix                   lastbox,
+                     int*                           totalNumberOfBondedInteractions,
+                     gmx_bool*                      bSumEkinhOld,
+                     int                            flags);
 
 #endif

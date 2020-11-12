@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -32,8 +32,8 @@
  * To help us fund GROMACS development, we humbly ask that you cite
  * the research papers on the package. Check out http://www.gromacs.org.
  */
-/*!\file
- * \internal
+/*!\internal
+ * \file
  * \brief
  * Implements methods from coordinatefile.h
  *
@@ -41,19 +41,203 @@
  * \ingroup module_coordinateio
  */
 
-
 #include "gmxpre.h"
 
 #include "coordinatefile.h"
 
 #include <algorithm>
 
+#include "gromacs/options.h"
+#include "gromacs/coordinateio/outputadapters.h"
+#include "gromacs/coordinateio/requirements.h"
+#include "gromacs/fileio/trxio.h"
 #include "gromacs/math/vec.h"
+#include "gromacs/topology/mtop_util.h"
 #include "gromacs/trajectory/trajectoryframe.h"
 #include "gromacs/utility/exceptions.h"
 
 namespace gmx
 {
+
+/*!\brief
+ *  Get the internal file type from the \p filename.
+ *
+ *  \param[in] filename Filename of output file.
+ *  \throws InvalidInputError When unable to work on an emoty file name.
+ *  \returns integer value of file type.
+ */
+static int getFileType(const std::string& filename)
+{
+    int filetype = efNR;
+    if (!filename.empty())
+    {
+        filetype = fn2ftp(filename.c_str());
+    }
+    else
+    {
+        GMX_THROW(InvalidInputError("Can not open file with an empty name"));
+    }
+    return filetype;
+}
+
+/*!\brief
+ * Get the flag representing the requirements for a given file output.
+ *
+ * Also checks if the supplied topology is sufficient through the pointer
+ * to \p mtop.
+ *
+ * \param[in] filetype Internal file type used to check requirements.
+ * \throws InvalidInputError When encountering an invalid file type.
+ * \returns Requirements represent by the bitmask in the return type.
+ */
+static unsigned long getSupportedOutputAdapters(int filetype)
+{
+    unsigned long supportedOutputAdapters = 0;
+    supportedOutputAdapters |= convertFlag(CoordinateFileFlags::Base);
+    switch (filetype)
+    {
+        case (efTNG):
+            supportedOutputAdapters |=
+                    (convertFlag(CoordinateFileFlags::RequireForceOutput)
+                     | convertFlag(CoordinateFileFlags::RequireVelocityOutput)
+                     | convertFlag(CoordinateFileFlags::RequireAtomConnections)
+                     | convertFlag(CoordinateFileFlags::RequireAtomInformation)
+                     | convertFlag(CoordinateFileFlags::RequireChangedOutputPrecision));
+            break;
+        case (efPDB):
+            supportedOutputAdapters |= (convertFlag(CoordinateFileFlags::RequireAtomConnections)
+                                        | convertFlag(CoordinateFileFlags::RequireAtomInformation));
+            break;
+        case (efGRO):
+            supportedOutputAdapters |= (convertFlag(CoordinateFileFlags::RequireAtomInformation)
+                                        | convertFlag(CoordinateFileFlags::RequireVelocityOutput));
+            break;
+        case (efTRR):
+            supportedOutputAdapters |= (convertFlag(CoordinateFileFlags::RequireForceOutput)
+                                        | convertFlag(CoordinateFileFlags::RequireVelocityOutput));
+            break;
+        case (efXTC):
+            supportedOutputAdapters |= (convertFlag(CoordinateFileFlags::RequireChangedOutputPrecision));
+            break;
+        case (efG96): break;
+        default: GMX_THROW(InvalidInputError("Invalid file type"));
+    }
+    return supportedOutputAdapters;
+}
+
+/*! \brief
+ * Creates a new container object with the user requested IOutputAdapter derived
+ * methods attached to it.
+ *
+ * \param[in] requirements Specifications for modules to add.
+ * \param[in] atoms        Local copy of atom information to use.
+ * \param[in] sel          Selection to use for choosing atoms to write out.
+ * \param[in] abilities    Specifications for what the output method can do.
+ * \returns   New container for IoutputAdapter derived methods.
+ */
+static OutputAdapterContainer addOutputAdapters(const OutputRequirements& requirements,
+                                                AtomsDataPtr              atoms,
+                                                const Selection&          sel,
+                                                unsigned long             abilities)
+{
+    OutputAdapterContainer output(abilities);
+
+    /* An adapter only gets added if the user has specified a non-default
+     * behaviour. In most cases, this behaviour is passive, meaning that
+     * output gets written if it exists in the input and if the output
+     * type supports it.
+     */
+    if (requirements.velocity != ChangeSettingType::PreservedIfPresent)
+    {
+        output.addAdapter(std::make_unique<SetVelocities>(requirements.velocity),
+                          CoordinateFileFlags::RequireVelocityOutput);
+    }
+    if (requirements.force != ChangeSettingType::PreservedIfPresent)
+    {
+        output.addAdapter(std::make_unique<SetForces>(requirements.force),
+                          CoordinateFileFlags::RequireForceOutput);
+    }
+    if (requirements.precision != ChangeFrameInfoType::PreservedIfPresent)
+    {
+        output.addAdapter(std::make_unique<SetPrecision>(requirements.prec),
+                          CoordinateFileFlags::RequireChangedOutputPrecision);
+    }
+    if (requirements.atoms != ChangeAtomsType::PreservedIfPresent)
+    {
+        output.addAdapter(std::make_unique<SetAtoms>(requirements.atoms, std::move(atoms)),
+                          CoordinateFileFlags::RequireAtomInformation);
+    }
+    if (requirements.frameTime != ChangeFrameTimeType::PreservedIfPresent)
+    {
+        switch (requirements.frameTime)
+        {
+            case (ChangeFrameTimeType::StartTime):
+                output.addAdapter(std::make_unique<SetStartTime>(requirements.startTimeValue),
+                                  CoordinateFileFlags::RequireNewFrameStartTime);
+                break;
+            case (ChangeFrameTimeType::TimeStep):
+                output.addAdapter(std::make_unique<SetTimeStep>(requirements.timeStepValue),
+                                  CoordinateFileFlags::RequireNewFrameTimeStep);
+                break;
+            case (ChangeFrameTimeType::Both):
+                output.addAdapter(std::make_unique<SetStartTime>(requirements.startTimeValue),
+                                  CoordinateFileFlags::RequireNewFrameStartTime);
+                output.addAdapter(std::make_unique<SetTimeStep>(requirements.timeStepValue),
+                                  CoordinateFileFlags::RequireNewFrameTimeStep);
+                break;
+            default: break;
+        }
+    }
+    if (requirements.box != ChangeFrameInfoType::PreservedIfPresent)
+    {
+        output.addAdapter(std::make_unique<SetBox>(requirements.newBox), CoordinateFileFlags::RequireNewBox);
+    }
+    if (sel.isValid())
+    {
+        output.addAdapter(std::make_unique<OutputSelector>(sel),
+                          CoordinateFileFlags::RequireCoordinateSelection);
+    }
+    return output;
+}
+
+std::unique_ptr<TrajectoryFrameWriter> createTrajectoryFrameWriter(const gmx_mtop_t*  top,
+                                                                   const Selection&   sel,
+                                                                   const std::string& filename,
+                                                                   AtomsDataPtr       atoms,
+                                                                   OutputRequirements requirements)
+{
+    /* TODO
+     * Currently the requirements object is expected to be processed and valid,
+     * meaning that e.g. a new box is specified if requested by the option,
+     * or that time values have been set if the corresponding values are set.
+     * This will need to get revisited when the code that builds this object from
+     * the user options gets merged.
+     */
+    int           filetype  = getFileType(filename);
+    unsigned long abilities = getSupportedOutputAdapters(filetype);
+
+    // first, check if we have a special output format that needs atoms
+    if ((filetype == efPDB) || (filetype == efGRO))
+    {
+        if (requirements.atoms == ChangeAtomsType::Never)
+        {
+            GMX_THROW(
+                    InconsistentInputError("Can not write to PDB or GRO when"
+                                           "explicitly turning atom information off"));
+        }
+        if (requirements.atoms != ChangeAtomsType::AlwaysFromStructure)
+        {
+            requirements.atoms = ChangeAtomsType::Always;
+        }
+    }
+    OutputAdapterContainer outputAdapters =
+            addOutputAdapters(requirements, std::move(atoms), sel, abilities);
+
+    TrajectoryFrameWriterPointer trajectoryFrameWriter(
+            new TrajectoryFrameWriter(filename, filetype, sel, top, std::move(outputAdapters)));
+    return trajectoryFrameWriter;
+}
+
 
 /*! \brief
  * Create a deep copy of a t_trxframe \p input into \p copy
@@ -75,12 +259,8 @@ namespace gmx
  * \param[in]     fvec  Pointer to local force storage vector.
  * \param[in] indexvec  Pointer to local index storage vector.
  */
-static void deepCopy_t_trxframe(const t_trxframe &input,
-                                t_trxframe       *copy,
-                                RVec             *xvec,
-                                RVec             *vvec,
-                                RVec             *fvec,
-                                int              *indexvec)
+static void
+deepCopy_t_trxframe(const t_trxframe& input, t_trxframe* copy, RVec* xvec, RVec* vvec, RVec* fvec, int* indexvec)
 {
     copy->not_ok    = input.not_ok;
     copy->bStep     = input.bStep;
@@ -103,7 +283,7 @@ static void deepCopy_t_trxframe(const t_trxframe &input,
     {
         copy->atoms = input.atoms;
     }
-    copy->prec      = input.prec;
+    copy->prec = input.prec;
     if (copy->bX)
     {
         copy->x = as_rvec_array(xvec);
@@ -144,8 +324,8 @@ static void deepCopy_t_trxframe(const t_trxframe &input,
         }
     }
     copy_mat(input.box, copy->box);
-    copy->bPBC   = input.bPBC;
-    copy->ePBC   = input.ePBC;
+    copy->bPBC    = input.bPBC;
+    copy->pbcType = input.pbcType;
 }
 
 /*! \brief
@@ -160,30 +340,22 @@ static void deepCopy_t_trxframe(const t_trxframe &input,
  * \param[in] mtop Pointer to topology, tested before that it is valid.
  * \todo Those should be methods in a replacement for t_trxstatus instead.
  */
-static t_trxstatus *openTNG(const std::string &name, const Selection &sel, const gmx_mtop_t *mtop)
+static t_trxstatus* openTNG(const std::string& name, const Selection& sel, const gmx_mtop_t* mtop)
 {
-    const char *filemode = "w";
+    const char* filemode = "w";
     if (sel.isValid())
     {
         GMX_ASSERT(sel.hasOnlyAtoms(), "Can only work with selections consisting out of atoms");
-        return trjtools_gmx_prepare_tng_writing(name.c_str(),
-                                                filemode[0],
-                                                nullptr,     //infile_, //how to get the input file here?
-                                                nullptr,
-                                                sel.atomCount(),
-                                                mtop,
-                                                sel.atomIndices(),
+        return trjtools_gmx_prepare_tng_writing(name.c_str(), filemode[0],
+                                                nullptr, // infile_, //how to get the input file here?
+                                                nullptr, sel.atomCount(), mtop, sel.atomIndices(),
                                                 sel.name());
     }
     else
     {
-        return trjtools_gmx_prepare_tng_writing(name.c_str(),
-                                                filemode[0],
-                                                nullptr, //infile_, //how to get the input file here?
-                                                nullptr,
-                                                mtop->natoms,
-                                                mtop,
-                                                get_atom_index(mtop),
+        return trjtools_gmx_prepare_tng_writing(name.c_str(), filemode[0],
+                                                nullptr, // infile_, //how to get the input file here?
+                                                nullptr, mtop->natoms, mtop, get_atom_index(mtop),
                                                 "System");
     }
 }
@@ -193,34 +365,26 @@ TrajectoryFileOpener::~TrajectoryFileOpener()
     close_trx(outputFile_);
 }
 
-t_trxstatus *TrajectoryFileOpener::outputFile()
+t_trxstatus* TrajectoryFileOpener::outputFile()
 {
     if (outputFile_ == nullptr)
     {
-        const char *filemode = "w";
+        const char* filemode = "w";
         switch (filetype_)
         {
-            case (efTNG):
-                outputFile_ = openTNG(outputFileName_,
-                                      sel_,
-                                      mtop_);
-                break;
+            case (efTNG): outputFile_ = openTNG(outputFileName_, sel_, mtop_); break;
             case (efPDB):
             case (efGRO):
             case (efTRR):
             case (efXTC):
-            case (efG96):
-                outputFile_ = open_trx(outputFileName_.c_str(), filemode);
-                break;
-            default:
-                GMX_THROW(InvalidInputError("Invalid file type"));
+            case (efG96): outputFile_ = open_trx(outputFileName_.c_str(), filemode); break;
+            default: GMX_THROW(InvalidInputError("Invalid file type"));
         }
     }
     return outputFile_;
 }
 
-void
-TrajectoryFrameWriter::prepareAndWriteFrame(const int framenumber, const t_trxframe &input)
+void TrajectoryFrameWriter::prepareAndWriteFrame(const int framenumber, const t_trxframe& input)
 {
     if (!outputAdapters_.isEmpty())
     {
@@ -236,9 +400,9 @@ TrajectoryFrameWriter::prepareAndWriteFrame(const int framenumber, const t_trxfr
         {
             localF_.resize(input.natoms);
         }
-        deepCopy_t_trxframe(input, &local, localX_.data(), localV_.data(),
-                            localF_.data(), localIndex_.data());
-        for (const auto &outputAdapter : outputAdapters_.getAdapters())
+        deepCopy_t_trxframe(input, &local, localX_.data(), localV_.data(), localF_.data(),
+                            localIndex_.data());
+        for (const auto& outputAdapter : outputAdapters_.getAdapters())
         {
             if (outputAdapter)
             {
@@ -249,7 +413,7 @@ TrajectoryFrameWriter::prepareAndWriteFrame(const int framenumber, const t_trxfr
     }
     else
     {
-        write_trxframe(file_.outputFile(), const_cast<t_trxframe *>(&input), nullptr);
+        write_trxframe(file_.outputFile(), const_cast<t_trxframe*>(&input), nullptr);
     }
 }
 

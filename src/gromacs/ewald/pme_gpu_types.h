@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -46,8 +46,8 @@
 
 /*
  * In OpenCL, the structures must be laid out on the host and device exactly the same way.
- * If something is off, one might get an error CL_INVALID_ARG_SIZE if any structure's sizes don't match.
- * What's worse, structures might be of same size but members might be aligned differently,
+ * If something is off, one might get an error CL_INVALID_ARG_SIZE if any structure's sizes don't
+ * match. What's worse, structures might be of same size but members might be aligned differently,
  * resulting in wrong kernel results. The structures below are aligned manually.
  * The pattern is ordering the members of structs from smallest to largest sizeof
  * (arrays behave the same way as sequences of separate fields),
@@ -72,12 +72,19 @@
  * then there would be no need for macro.
  */
 #ifndef __OPENCL_C_VERSION__
-#include "gromacs/gpu_utils/devicebuffer.h"
-#define HIDE_FROM_OPENCL_COMPILER(x) x
-static_assert(sizeof(DeviceBuffer<float>) == 8, "DeviceBuffer is defined as an 8 byte stub for OpenCL C");
-static_assert(sizeof(DeviceBuffer<int>) == 8, "DeviceBuffer is defined as an 8 byte stub for OpenCL C");
+#    include "gromacs/gpu_utils/devicebuffer.h"
+#    define HIDE_FROM_OPENCL_COMPILER(x) x
+static_assert(sizeof(DeviceBuffer<float>) == 8,
+              "DeviceBuffer is defined as an 8 byte stub for OpenCL C");
+static_assert(sizeof(DeviceBuffer<int>) == 8,
+              "DeviceBuffer is defined as an 8 byte stub for OpenCL C");
 #else
-#define HIDE_FROM_OPENCL_COMPILER(x) char8
+#    define HIDE_FROM_OPENCL_COMPILER(x) char8
+#endif
+
+#ifndef NUMFEPSTATES
+//! Number of FEP states.
+#    define NUMFEPSTATES 2
 #endif
 
 /* What follows is all the PME GPU function arguments,
@@ -95,9 +102,9 @@ struct PmeGpuConstParams
 {
     /*! \brief Electrostatics coefficient = ONE_4PI_EPS0 / pme->epsilon_r */
     float elFactor;
-    /*! \brief Virial and energy GPU array. Size is PME_GPU_ENERGY_AND_VIRIAL_COUNT (7) floats.
+    /*! \brief Virial and energy GPU array. Size is c_virialAndEnergyCount (7) floats.
      * The element order is virxx, viryy, virzz, virxy, virxz, viryz, energy. */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_virialAndEnergy;
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_virialAndEnergy[NUMFEPSTATES];
 };
 
 /*! \internal \brief
@@ -111,31 +118,31 @@ struct PmeGpuGridParams
 
     /* Grid sizes */
     /*! \brief Real-space grid data dimensions. */
-    int   realGridSize[DIM];
+    int realGridSize[DIM];
     /*! \brief Real-space grid dimensions, only converted to floating point. */
     float realGridSizeFP[DIM];
     /*! \brief Real-space grid dimensions (padded). The padding as compared to realGridSize includes the (order - 1) overlap. */
-    int   realGridSizePadded[DIM]; /* Is major dimension of this ever used in kernels? */
+    int realGridSizePadded[DIM]; /* Is major dimension of this ever used in kernels? */
     /*! \brief Fourier grid dimensions. This counts the complex numbers! */
-    int   complexGridSize[DIM];
+    int complexGridSize[DIM];
     /*! \brief Fourier grid dimensions (padded). This counts the complex numbers! */
-    int   complexGridSizePadded[DIM];
+    int complexGridSizePadded[DIM];
 
     /*! \brief Offsets for X/Y/Z components of d_splineModuli */
-    int  splineValuesOffset[DIM];
+    int splineValuesOffset[DIM];
     /*! \brief Offsets for X/Y/Z components of d_fractShiftsTable and d_gridlineIndicesTable */
-    int  tablesOffsets[DIM];
+    int tablesOffsets[DIM];
 
     /* Grid arrays */
     /*! \brief Real space grid. */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_realGrid;
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_realGrid[NUMFEPSTATES];
     /*! \brief Complex grid - used in FFT/solve. If inplace cu/clFFT is used, then it is the same handle as realGrid. */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_fourierGrid;
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_fourierGrid[NUMFEPSTATES];
 
     /*! \brief Grid spline values as in pme->bsp_mod
      * (laid out sequentially (XXX....XYYY......YZZZ.....Z))
      */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_splineModuli;
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_splineModuli[NUMFEPSTATES];
     /*! \brief Fractional shifts lookup table as in pme->fshx/fshy/fshz, laid out sequentially (XXX....XYYY......YZZZ.....Z) */
     HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_fractShiftsTable;
     /*! \brief Gridline indices lookup table
@@ -144,25 +151,25 @@ struct PmeGpuGridParams
 };
 
 /*! \internal \brief
- * A GPU data structure for storing the PME data of the atoms, local to this process' domain partition.
- * This only has to be updated every DD step.
+ * A GPU data structure for storing the PME data of the atoms, local to this process' domain
+ * partition. This only has to be updated every DD step.
  */
 struct PmeGpuAtomParams
 {
     /*! \brief Number of local atoms */
-    int    nAtoms;
+    int nAtoms;
     /*! \brief Global GPU memory array handle with input rvec atom coordinates.
      * The coordinates themselves change and need to be copied to the GPU for every PME computation,
      * but reallocation happens only at DD.
      */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_coordinates;
-    /*! \brief Global GPU memory array handle with input atom charges.
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<gmx::RVec>) d_coordinates;
+    /*! \brief Global GPU memory array handle with input atom charges in states A and B.
      * The charges only need to be reallocated and copied to the GPU at DD step.
      */
-    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_coefficients;
+    HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_coefficients[NUMFEPSTATES];
     /*! \brief Global GPU memory array handle with input/output rvec atom forces.
-     * The forces change and need to be copied from (and possibly to) the GPU for every PME computation,
-     * but reallocation happens only at DD.
+     * The forces change and need to be copied from (and possibly to) the GPU for every PME
+     * computation, but reallocation happens only at DD.
      */
     HIDE_FROM_OPENCL_COMPILER(DeviceBuffer<float>) d_forces;
     /*! \brief Global GPU memory array handle with ivec atom gridline indices.
@@ -191,31 +198,37 @@ struct PmeGpuDynamicParams
      * Basically, spread uses matrix columns (while solve and gather use rows).
      * This storage format might be not the most optimal since the box is always triangular so there are zeroes.
      */
-    float  recipBox[DIM][DIM];
+    float recipBox[DIM][DIM];
     /*! \brief The unit cell volume for solving. */
-    float  boxVolume;
+    float boxVolume;
+
+    /*! \brief The current coefficient scaling value. */
+    float scale;
 };
 
 /*! \internal \brief
- * A single structure encompassing almost all the PME data used in GPU kernels on device.
- * This is inherited by the GPU framework-specific structure
- * (PmeGpuCudaKernelParams in pme.cuh).
- * This way, most code preparing the kernel parameters can be GPU-agnostic by casting
- * the kernel parameter data pointer to PmeGpuKernelParamsBase.
+ * A single structure encompassing all the PME data used in GPU kernels on device.
+ * To extend the list with platform-specific parameters, this can be inherited by the
+ * GPU framework-specific structure.
  */
 struct PmeGpuKernelParamsBase
 {
     /*! \brief Constant data that is set once. */
-    struct PmeGpuConstParams   constants;
+    struct PmeGpuConstParams constants;
     /*! \brief Data dependent on the grid size/cutoff. */
-    struct PmeGpuGridParams    grid;
+    struct PmeGpuGridParams grid;
     /*! \brief Data dependent on the DD and local atoms. */
-    struct PmeGpuAtomParams    atoms;
+    struct PmeGpuAtomParams atoms;
     /*! \brief Data that possibly changes for every new PME computation.
      * This should be kept up-to-date by calling pme_gpu_prepare_computation(...)
      * before launching spreading.
      */
     struct PmeGpuDynamicParams current;
+    /* These texture objects are only used in CUDA and are related to the grid size. */
+    /*! \brief Texture object for accessing grid.d_fractShiftsTable */
+    HIDE_FROM_OPENCL_COMPILER(DeviceTexture) fractShiftsTableTexture;
+    /*! \brief Texture object for accessing grid.d_gridlineIndicesTable */
+    HIDE_FROM_OPENCL_COMPILER(DeviceTexture) gridlineIndicesTableTexture;
 };
 
 #endif

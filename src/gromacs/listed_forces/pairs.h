@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2016,2017,2018 by the GROMACS development team.
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -45,27 +46,39 @@
 #define GMX_LISTED_FORCES_PAIRS_H
 
 #include "gromacs/math/vec.h"
-#include "gromacs/mdtypes/mdatom.h"
 #include "gromacs/topology/ifunc.h"
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
 
 struct gmx_grppairener_t;
 struct t_forcerec;
-struct t_graph;
 struct t_pbc;
+
+namespace gmx
+{
+class StepWorkload;
+}
 
 /*! \brief Calculate VdW/charge listed pair interactions (usually 1-4
  * interactions).
  *
  * global_atom_index is only passed for printing error messages.
  */
-void
-do_pairs(int ftype, int nbonds, const t_iatom iatoms[], const t_iparams iparams[],
-         const rvec x[], rvec4 f[], rvec fshift[],
-         const struct t_pbc *pbc, const struct t_graph *g,
-         const real *lambda, real *dvdl, const t_mdatoms *md, const t_forcerec *fr,
-         gmx_bool computeForcesOnly, gmx_grppairener_t *grppener,
-         int *global_atom_index);
+void do_pairs(int                      ftype,
+              int                      nbonds,
+              const t_iatom            iatoms[],
+              const t_iparams          iparams[],
+              const rvec               x[],
+              rvec4                    f[],
+              rvec                     fshift[],
+              const struct t_pbc*      pbc,
+              const real*              lambda,
+              real*                    dvdl,
+              const t_mdatoms*         md,
+              const t_forcerec*        fr,
+              bool                     havePerturbedPairs,
+              const gmx::StepWorkload& stepWork,
+              gmx_grppairener_t*       grppener,
+              int*                     global_atom_index);
 
 #endif

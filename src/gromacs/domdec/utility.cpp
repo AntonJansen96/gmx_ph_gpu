@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -69,7 +69,7 @@ void make_tric_corr_matrix(int npbcdim, const matrix box, matrix tcm)
 {
     if (YY < npbcdim)
     {
-        tcm[YY][XX] = -box[YY][XX]/box[YY][YY];
+        tcm[YY][XX] = -box[YY][XX] / box[YY][YY];
     }
     else
     {
@@ -77,8 +77,8 @@ void make_tric_corr_matrix(int npbcdim, const matrix box, matrix tcm)
     }
     if (ZZ < npbcdim)
     {
-        tcm[ZZ][XX] = -(box[ZZ][YY]*tcm[YY][XX] + box[ZZ][XX])/box[ZZ][ZZ];
-        tcm[ZZ][YY] = -box[ZZ][YY]/box[ZZ][ZZ];
+        tcm[ZZ][XX] = -(box[ZZ][YY] * tcm[YY][XX] + box[ZZ][XX]) / box[ZZ][ZZ];
+        tcm[ZZ][YY] = -box[ZZ][YY] / box[ZZ][ZZ];
     }
     else
     {
@@ -92,7 +92,8 @@ void check_screw_box(const matrix box)
     /* Mathematical limitation */
     if (box[YY][XX] != 0 || box[ZZ][XX] != 0)
     {
-        gmx_fatal(FARGS, "With screw pbc the unit cell can not have non-zero off-diagonal x-components");
+        gmx_fatal(FARGS,
+                  "With screw pbc the unit cell can not have non-zero off-diagonal x-components");
     }
 
     /* Limitation due to the asymmetry of the eighth shell method */
@@ -102,33 +103,10 @@ void check_screw_box(const matrix box)
     }
 }
 
-void dd_resize_state(t_state                 *state,
-                     PaddedVector<gmx::RVec> *f,
-                     int                      natoms)
+void dd_resize_atominfo_and_state(t_forcerec* fr, t_state* state, const int numAtoms)
 {
-    if (debug)
-    {
-        fprintf(debug, "Resizing state: currently %d, required %d\n", state->natoms, natoms);
-    }
-
-    state_change_natoms(state, natoms);
-
-    if (f != nullptr)
-    {
-        /* We need to allocate one element extra, since we might use
-         * (unaligned) 4-wide SIMD loads to access rvec entries.
-         */
-        f->resizeWithPadding(natoms);
-    }
-}
-
-void dd_check_alloc_ncg(t_forcerec              *fr,
-                        t_state                 *state,
-                        PaddedVector<gmx::RVec> *f,
-                        int                      numChargeGroups)
-{
-    fr->cginfo.resize(numChargeGroups);
+    fr->cginfo.resize(numAtoms);
 
     /* We use x during the setup of the atom communication */
-    dd_resize_state(state, f, numChargeGroups);
+    state_change_natoms(state, numAtoms);
 }

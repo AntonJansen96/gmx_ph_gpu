@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -35,21 +35,24 @@
 #ifndef GMX_TOOLS_REPORT_METHODS_H
 #define GMX_TOOLS_REPORT_METHODS_H
 
+#include <string>
+
 #include "gromacs/commandline/cmdlineoptionsmodule.h"
-#include "gromacs/mdtypes/inputrec.h"
-#include "gromacs/topology/topology.h"
 #include "gromacs/utility/filestream.h"
 #include "gromacs/utility/textwriter.h"
+
+struct gmx_mtop_t;
+struct t_inputrec;
 
 namespace gmx
 {
 
 class ReportMethodsInfo
 {
-    public:
-        static const char name[];
-        static const char shortDescription[];
-        static ICommandLineOptionsModulePointer create();
+public:
+    static const char                       name[];
+    static const char                       shortDescription[];
+    static ICommandLineOptionsModulePointer create();
 };
 
 // Helper functions of the class
@@ -62,7 +65,7 @@ class ReportMethodsInfo
  * \param[in] section String with section text for header.
  * \param[in] writeFormattedText If we need to format the text for LaTeX output or not
  */
-void writeHeader(TextWriter *writer, const std::string &text, const std::string &section, bool writeFormattedText);
+void writeHeader(TextWriter* writer, const std::string& text, const std::string& section, bool writeFormattedText);
 
 /*! \brief
  * Write information about the molecules in the system.
@@ -75,7 +78,7 @@ void writeHeader(TextWriter *writer, const std::string &text, const std::string 
  * \param[in] writeFormattedText Decide if we want formatted text output or not.
  *
  */
-void writeSystemInformation(TextWriter *writer, const gmx_mtop_t &top, bool writeFormattedText);
+void writeSystemInformation(TextWriter* writer, const gmx_mtop_t& top, bool writeFormattedText);
 
 /*! \brief
  * Write information about system parameters.
@@ -87,7 +90,7 @@ void writeSystemInformation(TextWriter *writer, const gmx_mtop_t &top, bool writ
  * \param[in] ir Reference to inputrec of the run input.
  * \param[in] writeFormattedText Decide if we want formatted text output or not.
  */
-void writeParameterInformation(TextWriter *writer, const t_inputrec &ir, bool writeFormattedText);
+void writeParameterInformation(TextWriter* writer, const t_inputrec& ir, bool writeFormattedText);
 
 /*! \brief
  * Wrapper for writing out information.
@@ -102,8 +105,11 @@ void writeParameterInformation(TextWriter *writer, const t_inputrec &ir, bool wr
  * \param[in] writeFormattedText Decide if we want formatted text output or not.
  * \param[in] notStdout Bool to see if we can close the file after writing or not in case of stdout.
  */
-void writeInformation(TextOutputFile *outputStream, const t_inputrec &ir,
-                      const gmx_mtop_t &top, bool writeFormattedText, bool notStdout);
+void writeInformation(TextOutputFile*   outputStream,
+                      const t_inputrec& ir,
+                      const gmx_mtop_t& top,
+                      bool              writeFormattedText,
+                      bool              notStdout);
 
 } // namespace gmx
 

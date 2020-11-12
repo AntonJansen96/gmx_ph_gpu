@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2013,2014,2015,2016,2019, by the GROMACS development team, led by
+# Copyright (c) 2013,2014,2015,2016,2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -35,30 +35,30 @@
 file(GLOB FILEIO_SOURCES *.cpp)
 
 if(GMX_USE_PLUGINS)
-  target_sources(libgromacs_external PRIVATE ${CMAKE_SOURCE_DIR}/src/external/vmd_molfile/vmddlopen.cpp)
+    add_library(vmddlopen OBJECT ${CMAKE_SOURCE_DIR}/src/external/vmd_molfile/vmddlopen.cpp)
+    gmx_target_compile_options(vmddlopen)
+    if (WIN32)
+        gmx_target_warning_suppression(vmddlopen /wd4996 HAS_NO_MSVC_UNSAFE_FUNCTION)
+    endif()
+    list(APPEND libgromacs_object_library_dependencies vmddlopen)
+    set(libgromacs_object_library_dependencies ${libgromacs_object_library_dependencies} PARENT_SCOPE)
 else()
-  list(REMOVE_ITEM FILEIO_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/vmdio.cpp)
+    # Remove vmdio.cpp from sources since we do not have plugin support
+    list(FILTER FILEIO_SOURCES EXCLUDE REGEX ".*vmdio.cpp$")
 endif()
 
-set(LIBGROMACS_SOURCES ${LIBGROMACS_SOURCES} ${FILEIO_SOURCES} PARENT_SCOPE)
+target_sources(libgromacs PRIVATE ${FILEIO_SOURCES})
 
-gmx_install_headers(
-    confio.h
-    enxio.h
-    filetypes.h
-    gmxfio.h
-    matio.h
-    mtxio.h
-    oenv.h
-    pdbio.h
-    rgb.h
-    tpxio.h
-    trrio.h
-    trxio.h
-    xdr_datatype.h
-    xtcio.h
-    xvgr.h
-    )
+if(GMX_INSTALL_LEGACY_API)
+  install(FILES
+          oenv.h
+	  confio.h
+          pdbio.h
+          tpxio.h
+          trxio.h
+	  filetypes.h
+          DESTINATION include/gromacs/fileio)
+endif()
 
 if (BUILD_TESTING)
      add_subdirectory(tests)

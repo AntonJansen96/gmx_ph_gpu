@@ -1,7 +1,8 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+# Copyright (c) 2011,2012,2013,2014,2015 by the GROMACS development team.
+# Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -37,7 +38,6 @@ if (NOT GMX_BUILD_UNITTESTS)
     return()
 endif()
 
-include_directories(BEFORE SYSTEM ${GMOCK_INCLUDE_DIRS})
 set(TESTUTILS_SOURCES
     cmdlinetest.cpp
     conftest.cpp
@@ -54,10 +54,13 @@ set(TESTUTILS_SOURCES
     testasserts.cpp
     testfilemanager.cpp
     testfileredirector.cpp
+    test_device.cpp
+    test_hardware_environment.cpp
     testinit.cpp
     testmatchers.cpp
     testoptions.cpp
     textblockmatchers.cpp
+    tprfilegenerator.cpp
     xvgtest.cpp
     )
 
@@ -65,15 +68,36 @@ if(NOT HAVE_TINYXML2)
     list(APPEND TESTUTILS_SOURCES ../external/tinyxml2/tinyxml2.cpp)
 endif()
 
-add_library(testutils STATIC ${UNITTEST_TARGET_OPTIONS} ${TESTUTILS_SOURCES})
-set(TESTUTILS_LIBS testutils)
-set_property(TARGET testutils APPEND PROPERTY COMPILE_DEFINITIONS "${GMOCK_COMPILE_DEFINITIONS}")
-set_property(TARGET testutils APPEND PROPERTY COMPILE_FLAGS "${GMOCK_COMPILE_FLAGS}")
-target_link_libraries(testutils libgromacs ${GMX_COMMON_LIBRARIES} ${GMOCK_LIBRARIES})
+if (GMX_GPU_CUDA)
+    # Work around FindCUDA that prevents using target_link_libraries()
+    # with keywords otherwise...
+    set(CUDA_LIBRARIES PRIVATE ${CUDA_LIBRARIES})
+    if (NOT GMX_CLANG_CUDA)
+        gmx_cuda_add_library(testutils ${TESTUTILS_SOURCES})
+    else()
+        set_source_files_properties(test_device.cpp PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
+        gmx_compile_cuda_file_with_clang(test_device.cpp)
+        add_library(testutils STATIC ${TESTUTILS_SOURCES})
+        target_link_libraries(testutils PRIVATE ${GMX_CUDA_CLANG_LINK_LIBS})
+    endif()
+    target_link_libraries(testutils PRIVATE ${CUDA_CUFFT_LIBRARIES})
+else()
+    add_library(testutils STATIC ${UNITTEST_TARGET_OPTIONS} ${TESTUTILS_SOURCES})
+endif()
+
+if (GMX_GPU_SYCL)
+    set_source_files_properties(test_device.cpp
+      PROPERTIES COMPILE_FLAGS "${SYCL_CXX_FLAGS}")
+endif()
+
+gmx_target_compile_options(testutils)
+target_compile_definitions(testutils PRIVATE HAVE_CONFIG_H)
+target_include_directories(testutils SYSTEM BEFORE PRIVATE ${PROJECT_SOURCE_DIR}/src/external/thread_mpi/include)
+target_link_libraries(testutils PRIVATE libgromacs ${GMX_COMMON_LIBRARIES} gmock)
 
 if(HAVE_TINYXML2)
     include_directories(SYSTEM ${TinyXML2_INCLUDE_DIR})
-    target_link_libraries(testutils ${TinyXML2_LIBRARIES})
+    target_link_libraries(testutils PRIVATE ${TinyXML2_LIBRARIES})
 else()
     include_directories(BEFORE SYSTEM "../external/tinyxml2")
 endif()
@@ -106,7 +130,6 @@ endif()
 
 set(TESTUTILS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(TESTUTILS_DIR ${TESTUTILS_DIR} PARENT_SCOPE)
-set(TESTUTILS_LIBS ${TESTUTILS_LIBS} PARENT_SCOPE)
 set(GMX_CAN_RUN_MPI_TESTS ${GMX_CAN_RUN_MPI_TESTS} PARENT_SCOPE)
 
 add_subdirectory(tests)

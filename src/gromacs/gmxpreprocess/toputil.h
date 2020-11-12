@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2012,2014,2015,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2012,2014,2015,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -40,10 +40,6 @@
 
 #include <cstdio>
 
-#include "gromacs/utility/arrayref.h"
-
-#include "gromacs/utility/arrayref.h"
-
 enum class Directive : int;
 class PreprocessingAtomTypes;
 struct t_atoms;
@@ -53,25 +49,27 @@ struct MoleculeInformation;
 class InteractionOfType;
 struct InteractionsOfType;
 
+namespace gmx
+{
+template<typename>
+class ArrayRef;
+}
+
 /* UTILITIES */
 
-int name2index(char *str, char ***typenames, int ntypes);
-
-void add_param_to_list(InteractionsOfType *list, const InteractionOfType &b);
-
-
+void add_param_to_list(InteractionsOfType* list, const InteractionOfType& b);
 
 /* PRINTING */
 
-void print_blocka(FILE *out, const char *szName, const char *szIndex,
-                  const char *szA, t_blocka *block);
+void print_atoms(FILE* out, PreprocessingAtomTypes* atype, t_atoms* at, int* cgnr, bool bRTPresname);
 
-void print_atoms(FILE *out, PreprocessingAtomTypes *atype, t_atoms *at, int *cgnr,
-                 bool bRTPresname);
+void print_bondeds(FILE*                                   out,
+                   int                                     natoms,
+                   Directive                               d,
+                   int                                     ftype,
+                   int                                     fsubtype,
+                   gmx::ArrayRef<const InteractionsOfType> plist);
 
-void print_bondeds(FILE *out, int natoms, Directive d,
-                   int ftype, int fsubtype, gmx::ArrayRef<const InteractionsOfType> plist);
-
-void print_excl(FILE *out, int natoms, t_excls excls[]);
+void print_excl(FILE* out, int natoms, t_excls excls[]);
 
 #endif

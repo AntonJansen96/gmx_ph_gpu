@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2011,2014,2015,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2011,2014,2015,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -40,10 +40,14 @@
 
 #include <vector>
 
-#include "gromacs/utility/arrayref.h"
-
 class PreprocessingAtomTypes;
 struct MoleculePatchDatabase;
+
+namespace gmx
+{
+template<typename>
+class ArrayRef;
+}
 
 /*! \brief
  * Read database for N&C terminal modifications.
@@ -54,8 +58,10 @@ struct MoleculePatchDatabase;
  * \param[in] atype Database for atomtype information.
  * \returns Number of entries entered into database.
  */
-int read_ter_db(const char *ffdir, char ter,
-                std::vector<MoleculePatchDatabase> *tbptr, PreprocessingAtomTypes *atype);
+int read_ter_db(const char*                         ffdir,
+                char                                ter,
+                std::vector<MoleculePatchDatabase>* tbptr,
+                PreprocessingAtomTypes*             atype);
 
 /*! \brief
  * Return entries for modification blocks that match a residue name.
@@ -64,9 +70,7 @@ int read_ter_db(const char *ffdir, char ter,
  * \param[in] resname Residue name for terminus.
  * \returns A list of pointers to entries that match, or of nullptr for no matching entry.
  */
-std::vector<MoleculePatchDatabase *>
-filter_ter(gmx::ArrayRef<MoleculePatchDatabase>                tb,
-           const char                                         *resname);
+std::vector<MoleculePatchDatabase*> filter_ter(gmx::ArrayRef<MoleculePatchDatabase> tb, const char* resname);
 
 /*! \brief
  * Interactively select one terminus.
@@ -75,6 +79,6 @@ filter_ter(gmx::ArrayRef<MoleculePatchDatabase>                tb,
  * \param[in] title Name of entry.
  * \returns The modification block selected.
  */
-MoleculePatchDatabase *choose_ter(gmx::ArrayRef<MoleculePatchDatabase *> tb, const char *title);
+MoleculePatchDatabase* choose_ter(gmx::ArrayRef<MoleculePatchDatabase*> tb, const char* title);
 
 #endif

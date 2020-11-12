@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -53,30 +53,31 @@ namespace gmx
 namespace test
 {
 
-MockThreadAffinityAccess::MockThreadAffinityAccess()
-    : supported_(true)
+MockThreadAffinityAccess::MockThreadAffinityAccess() : supported_(true)
 {
     using ::testing::_;
     using ::testing::Return;
-    ON_CALL(*this, setCurrentThreadAffinityToCore(_))
-        .WillByDefault(Return(true));
+    ON_CALL(*this, setCurrentThreadAffinityToCore(_)).WillByDefault(Return(true));
 }
 
-MockThreadAffinityAccess::~MockThreadAffinityAccess()
-{
-}
+MockThreadAffinityAccess::~MockThreadAffinityAccess() {}
 
 
 ThreadAffinityTestHelper::ThreadAffinityTestHelper()
 {
     snew(cr_, 1);
-    cr_->nnodes         = gmx_node_num();
-    cr_->nodeid         = gmx_node_rank();
-    cr_->duty           = DUTY_PP;
+    cr_->nnodes = gmx_node_num();
+    cr_->nodeid = gmx_node_rank();
+    // Default communicator is needed for [SIM]MASTER(cr) to work
+    // TODO: Should get cleaned up once thread affinity works with
+    //       communicators rather than the full cr (part of #2395)
+    cr_->sizeOfDefaultCommunicator = gmx_node_num();
+    cr_->rankInDefaultCommunicator = gmx_node_rank();
+    cr_->duty                      = DUTY_PP;
 #if GMX_MPI
     cr_->mpi_comm_mysim = MPI_COMM_WORLD;
 #endif
-    hwOpt_.thread_affinity     = threadaffAUTO;
+    hwOpt_.threadAffinity      = ThreadAffinity::Auto;
     hwOpt_.totNumThreadsIsAuto = false;
     physicalNodeId_            = 0;
 }

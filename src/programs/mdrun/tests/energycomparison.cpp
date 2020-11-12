@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -47,6 +47,7 @@
 #include <gtest/gtest.h>
 #include <gtest/gtest-spi.h>
 
+#include "gromacs/topology/ifunc.h"
 #include "gromacs/trajectory/energyframe.h"
 #include "gromacs/utility/basenetwork.h"
 #include "gromacs/utility/strconvert.h"
@@ -63,47 +64,85 @@ namespace gmx
 namespace test
 {
 
-void compareEnergyFrames(const EnergyFrame      &reference,
-                         const EnergyFrame      &test,
-                         const EnergyTolerances &tolerances)
+EnergyTermsToCompare EnergyComparison::defaultEnergyTermsToCompare()
 {
+    return {
+        { interaction_function[F_EPOT].longname, relativeToleranceAsUlp(10.0, 50) },
+        { interaction_function[F_EKIN].longname, relativeToleranceAsUlp(10.0, 50) },
+        // The pressure is very strongly affected by summation errors,
+        // so we need a large tolerance.
+        // The value of 15000 is calibrated for running a small water box for 16 steps.
+        // For a single frame for a water box a value of 150 could work.
+        { interaction_function[F_PRES].longname, relativeToleranceAsUlp(10.0, 15000) },
+    };
+};
+
+EnergyComparison::EnergyComparison(const EnergyTermsToCompare& energyTermsToCompare,
+                                   MaxNumFrames                maxNumFrames) :
+    energyTermsToCompare_(energyTermsToCompare),
+    maxNumFrames_(maxNumFrames)
+{
+}
+
+std::vector<std::string> EnergyComparison::getEnergyNames() const
+{
+    std::vector<std::string> keys;
+    keys.reserve(energyTermsToCompare_.size());
+    for (const auto& it : energyTermsToCompare_)
+    {
+        keys.push_back(it.first);
+    }
+    return keys;
+}
+
+void EnergyComparison::operator()(const EnergyFrame& reference, const EnergyFrame& test) const
+{
+    if (numComparedFrames_ >= maxNumFrames_)
+    {
+        // Nothing should be compared
+        return;
+    }
+
+    SCOPED_TRACE("Comparing energy reference frame " + reference.frameName() + " and test frame "
+                 + test.frameName());
     for (auto referenceIt = reference.begin(); referenceIt != reference.end(); ++referenceIt)
     {
-        auto &energyName = referenceIt->first;
-        SCOPED_TRACE("Comparing " +  energyName + " between frames");
-        auto  testIt = test.find(energyName);
+        auto& energyName = referenceIt->first;
+        SCOPED_TRACE("Comparing " + energyName + " between frames");
+        auto testIt = test.find(energyName);
         if (testIt != test.end())
         {
-            auto &energyValueInReference = referenceIt->second;
-            auto &energyValueInTest      = testIt->second;
-            EXPECT_REAL_EQ_TOL(energyValueInReference, energyValueInTest, tolerances.at(energyName));
+            auto& energyValueInReference = referenceIt->second;
+            auto& energyValueInTest      = testIt->second;
+            EXPECT_REAL_EQ_TOL(energyValueInReference, energyValueInTest,
+                               energyTermsToCompare_.at(energyName));
         }
         else
         {
             ADD_FAILURE() << "Could not find energy component from reference frame in test frame";
         }
     }
+    numComparedFrames_++;
 }
 
-void
-checkEnergiesAgainstReferenceData(const std::string      &energyFilename,
-                                  const EnergyTolerances &energiesToMatch,
-                                  TestReferenceChecker   *checker)
+void checkEnergiesAgainstReferenceData(const std::string&          energyFilename,
+                                       const EnergyTermsToCompare& energyTermsToCompare,
+                                       TestReferenceChecker*       checker,
+                                       MaxNumFrames                maxNumEnergyFrames)
 {
     const bool thisRankChecks = (gmx_node_rank() == 0);
 
     if (thisRankChecks)
     {
-        auto namesOfEnergiesToMatch = getKeys(energiesToMatch);
-        auto energyReader           = openEnergyFileToReadFields(energyFilename,
-                                                                 namesOfEnergiesToMatch);
+        EnergyComparison energyComparison(energyTermsToCompare, maxNumEnergyFrames);
+        auto energyReader = openEnergyFileToReadTerms(energyFilename, energyComparison.getEnergyNames());
 
         std::unordered_map<std::string, TestReferenceChecker> checkers;
-        for (const auto &energyToMatch : energiesToMatch)
+        for (const auto& energyTermToCompare : energyTermsToCompare)
         {
-            const auto &energyName = energyToMatch.first;
-            checkers[energyName] = checker->checkCompound("Energy", energyName.c_str());
-            const auto &energyTolerance = energyToMatch.second;
+            const auto& energyName      = energyTermToCompare.first;
+            checkers[energyName]        = checker->checkCompound("Energy", energyName.c_str());
+            const auto& energyTolerance = energyTermToCompare.second;
             checkers[energyName].setDefaultTolerance(energyTolerance);
         }
 
@@ -112,21 +151,28 @@ checkEnergiesAgainstReferenceData(const std::string      &energyFilename,
         // frames with the same step number. But we need a unique
         // identifier so we match the intended reference data, so we
         // keep track of the number of the frame read from the file.
-        int frameNumber = 0;
-        while (energyReader->readNextFrame())
+        unsigned int frameNumber = 0;
+        while (frameNumber < maxNumEnergyFrames && energyReader->readNextFrame())
         {
-            const EnergyFrame &frame     = energyReader->frame();
-            const std::string  frameName = frame.frameName() + " in frame " + toString(frameNumber);
+            const EnergyFrame& frame = energyReader->frame();
+            const std::string  frameName =
+                    frame.frameName() + " in frame " + toString(static_cast<int64_t>(frameNumber));
 
-            for (const auto &energyToMatch : energiesToMatch)
+            SCOPED_TRACE("Comparing frame " + frameName);
+            for (const auto& energyTermToCompare : energyTermsToCompare)
             {
-                const std::string &energyName  = energyToMatch.first;
+                const std::string& energyName  = energyTermToCompare.first;
                 const real         energyValue = frame.at(energyName);
 
-                SCOPED_TRACE("Comparing " +  energyName + " in " + frameName);
+                SCOPED_TRACE("Comparing energy " + energyName);
                 checkers[energyName].checkReal(energyValue, frameName.c_str());
             }
             ++frameNumber;
+        }
+        if (frameNumber == maxNumEnergyFrames && energyReader->readNextFrame())
+        {
+            // There would have been at least one more frame!
+            checker->disableUnusedEntriesCheck();
         }
     }
     else
@@ -135,5 +181,13 @@ checkEnergiesAgainstReferenceData(const std::string      &energyFilename,
     }
 }
 
-}  // namespace test
-}  // namespace gmx
+void checkEnergiesAgainstReferenceData(const std::string&          energyFilename,
+                                       const EnergyTermsToCompare& energyTermsToCompare,
+                                       TestReferenceChecker*       checker)
+{
+    checkEnergiesAgainstReferenceData(energyFilename, energyTermsToCompare, checker,
+                                      MaxNumFrames::compareAllFrames());
+}
+
+} // namespace test
+} // namespace gmx

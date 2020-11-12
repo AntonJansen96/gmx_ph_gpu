@@ -65,41 +65,51 @@ using test::TextFileMatch;
 //! Test parameter struct.
 using CommandLineOptionParams = std::tuple<std::string, int>;
 
-class EditconfTest : public test::CommandLineTestBase,
-                     public ::testing::WithParamInterface<CommandLineOptionParams>
+class EditconfTest :
+    public test::CommandLineTestBase,
+    public ::testing::WithParamInterface<CommandLineOptionParams>
 {
-    public:
-        EditconfTest()
-        {
-        }
+public:
+    EditconfTest()
+    {
+        const auto& params = GetParam();
+        setInputFile("-f", std::get<0>(params));
 
-        void runTest(const CommandLine &args)
-        {
-            CommandLine &cmdline = commandLine();
-            cmdline.merge(args);
+        std::string outputfile = "output.";
+        outputfile += ftp2ext(std::get<1>(params));
+        ExactTextMatch settings;
+        setOutputFile("-o", outputfile.c_str(), TextFileMatch(settings));
+    }
 
-            TestReferenceChecker rootChecker(this->rootChecker());
+    void runTest(const char* testName)
+    {
+        // Get the command line flags that were set up in the constructor
+        CommandLine& cmdline = commandLine();
 
-            ASSERT_EQ(0, gmx_editconf(cmdline.argc(), cmdline.argv()));
+        // Provide the name of the module to call
+        std::string module[] = { "editconf" };
+        cmdline.merge(CommandLine(module));
 
-            auto extension = ftp2ext(std::get<1>(GetParam()));
-            rootChecker.checkString(extension, "Output file type");
-            checkOutputFiles();
-        }
+        // Call the module
+        ASSERT_EQ(0, gmx_editconf(cmdline.argc(), cmdline.argv()));
+
+        // Check the output
+        auto                 extension = ftp2ext(std::get<1>(GetParam()));
+        TestReferenceChecker rootChecker(this->rootChecker());
+        rootChecker.checkString(extension, testName);
+        checkOutputFiles();
+    }
 };
 
 TEST_P(EditconfTest, ProducesMatchingOutputStructureFile)
 {
-    const auto    &params    = GetParam();
-    std::string    cmdline[] = {
-        "editconf"
-    };
-    setInputFile("-f", std::get<0>(params));
-    std::string    outputfile = "output.";
-    outputfile += ftp2ext(std::get<1>(params));
-    ExactTextMatch settings;
-    setOutputFile("-o", outputfile.c_str(), TextFileMatch(settings));
-    runTest(CommandLine(cmdline));
+    runTest("Output file type");
+}
+
+TEST_P(EditconfTest, ProducesMatchingOutputStructureFileUsingIndexGroup)
+{
+    setInputFile("-n", "fragment1.ndx");
+    runTest("Output file type using index group");
 }
 
 // TODO These reproduce slightly differently in double precision, and
@@ -107,11 +117,11 @@ TEST_P(EditconfTest, ProducesMatchingOutputStructureFile)
 // coordinates. It's better to run the tests only in single than not
 // have the tests.
 #if !GMX_DOUBLE
-INSTANTIATE_TEST_CASE_P(SinglePeptideFragments, EditconfTest,
-                            ::testing::Combine
-                            (::testing::Values("fragment1.pdb", "fragment1.gro", "fragment1.g96"),
-                                ::testing::Values(efPDB, efGRO, efG96))
-                        );
+INSTANTIATE_TEST_CASE_P(
+        SinglePeptideFragments,
+        EditconfTest,
+        ::testing::Combine(::testing::Values("fragment1.pdb", "fragment1.gro", "fragment1.g96"),
+                           ::testing::Values(efPDB, efGRO, efG96)));
 #endif
 
 } // namespace

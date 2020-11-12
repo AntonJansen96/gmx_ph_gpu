@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -38,12 +38,15 @@
  * produced by mdrun.
  *
  * \author Mark Abraham <mark.j.abraham@gmail.com>
+ * \author Pascal Merz <pascal.merz@me.com>
  * \ingroup module_mdrun_integration_tests
  */
 #ifndef GMX_PROGRAMS_MDRUN_TESTS_TRAJECTORYCOMPARISON_H
 #define GMX_PROGRAMS_MDRUN_TESTS_TRAJECTORYCOMPARISON_H
 
 #include "testutils/testasserts.h"
+
+#include "comparison_helpers.h"
 
 namespace gmx
 {
@@ -53,14 +56,27 @@ class TrajectoryFrame;
 namespace test
 {
 
+class TestReferenceChecker;
+
 /*! \internal
  * \brief Helper struct for testing different trajectory components with different tolerances. */
 struct TrajectoryTolerances
 {
     /*!@{*/
     /*! \brief Tolerances for reproduction of different quantities. */
-    FloatingPointTolerance box, positions, velocities, forces;
+    FloatingPointTolerance box, coordinates, velocities, forces;
     /*!@}*/
+};
+
+//! Enumeration controlling how data within trajectory frames are compared
+enum class ComparisonConditions : int
+{
+    CompareIfBothFound,
+    NoComparison,
+    MustCompare,
+    CompareIfReferenceFound,
+    CompareIfTestFound,
+    Count
 };
 
 /*! \internal
@@ -75,38 +91,95 @@ struct TrajectoryTolerances
 struct TrajectoryFrameMatchSettings
 {
     //! Whether boxes must be compared.
-    bool mustCompareBox;
-    //! Whether positions must be compared.
-    bool mustComparePositions;
+    bool mustCompareBox = false;
     //! Whether PBC will be handled if it can be handled.
-    bool handlePbcIfPossible;
+    bool handlePbcIfPossible = true;
     //! Whether PBC handling must occur for a valid comparison.
-    bool requirePbcHandling;
+    bool requirePbcHandling = false;
+    //! Whether position coordinates must be compared.
+    ComparisonConditions coordinatesComparison = ComparisonConditions::CompareIfBothFound;
     //! Whether velocities must be compared.
-    bool mustCompareVelocities;
+    ComparisonConditions velocitiesComparison = ComparisonConditions::CompareIfBothFound;
     //! Whether forces must be compared.
-    bool mustCompareForces;
+    ComparisonConditions forcesComparison = ComparisonConditions::CompareIfBothFound;
+    //! How many frames will be compared.
+    MaxNumFrames maxNumTrajectoryFrames = MaxNumFrames::compareAllFrames();
 };
 
-/*! \brief Compare the fields of the two frames for equality given
- * the \c matchSettings and \c tolerances.
+/*! \internal
+ * \brief Function object to compare the fields of two frames vs each others or one
+ * frame vs reference data for equality given the \c matchSettings_ and \c tolerances_.
  *
- * The two frames are required to have valid and matching values for
- * time and step. According to \c matchSettings, box, positions,
+ * If using two frames, they are required to have valid and matching values for
+ * time and step. According to \c matchSettings_, box, position coordinates,
  * velocities and/or forces will be compared between frames, using the
- * \c tolerances. Comparisons will only occur when both frames have
+ * \c tolerances_. Comparisons will only occur when both frames have
  * the requisite data, and will be expected to be equal within the
- * matching component of \c tolerances. If a comparison fails, a
+ * matching component of \c tolerances_. If a comparison fails, a
  * GoogleTest expectation failure will be given. If a comparison is
- * required by \c matchSettings but cannot be done because either (or
+ * required by \c matchSettings_ but cannot be done because either (or
  * both) frames lack the requisite data, descriptive expectation
- * failures will be given. */
-void compareTrajectoryFrames(const TrajectoryFrame              &reference,
-                             const TrajectoryFrame              &test,
-                             const TrajectoryFrameMatchSettings &matchSettings,
-                             const TrajectoryTolerances         &tolerances);
+ * failures will be given.
+ *
+ * When comparing a frame to reference data, according to \c matchSettings_,
+ * box, position coordinates, velocities and/or forces will be compared to
+ * reference data, using the \c tolerances_. If a comparison fails, a
+ * GoogleTest expectation failure will be given. If a comparison is
+ * required by \c matchSettings_ but cannot be done because the
+ * frame lacks the requisite data, descriptive expectation
+ * failures will be given.
+ */
+class TrajectoryComparison
+{
+public:
+    //! Defaults for trajectory comparisons
+    static const TrajectoryTolerances s_defaultTrajectoryTolerances;
+    //! Constructor
+    TrajectoryComparison(const TrajectoryFrameMatchSettings& matchSettings,
+                         const TrajectoryTolerances&         tolerances);
+    /*! \brief Compare reference with test given the \c
+     * matchSettings_ within \c tolerances_ */
+    void operator()(const TrajectoryFrame& reference, const TrajectoryFrame& test) const;
+    /*! \brief Compare frame to reference given the \c
+     * matchSettings_ within \c tolerances_ */
+    void operator()(const TrajectoryFrame& frame, TestReferenceChecker* checker) const;
 
-}  // namespace test
-}  // namespace gmx
+private:
+    //! Specifies expected behavior in comparisons
+    TrajectoryFrameMatchSettings matchSettings_;
+    //! Trajectory fields to match with given tolerances.
+    TrajectoryTolerances tolerances_;
+    /*! \brief The number of frames that have been compared until now
+     *
+     * This field is mutable because the need to update the flag
+     * when checking frames is merely an implementation detail,
+     * rather than a proper change of internal state triggered
+     * by the caller. */
+    mutable unsigned int numComparedFrames_ = 0;
+};
+
+/*! \internal
+ * \brief Helper function comparing a trajectory to reference.
+ *
+ * This opens a trajectory file, loops over its frames, and uses the
+ * \c trajectoryComparison and \c checker arguments to check each frame
+ * to reference data.
+ *
+ * Optionally, the max number of trajectory frames to be compared can
+ * be specified to allow to only test the first few frames of a
+ * simulation, e.g. to avoid failures due to numerical divergence.
+ */
+//! \{
+void checkTrajectoryAgainstReferenceData(const std::string&          trajectoryFilename,
+                                         const TrajectoryComparison& trajectoryComparison,
+                                         TestReferenceChecker*       checker);
+void checkTrajectoryAgainstReferenceData(const std::string&          trajectoryFilename,
+                                         const TrajectoryComparison& trajectoryComparison,
+                                         TestReferenceChecker*       checker,
+                                         MaxNumFrames                maxNumFrames);
+//! \}
+
+} // namespace test
+} // namespace gmx
 
 #endif

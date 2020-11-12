@@ -14,7 +14,8 @@ Jiri Kraus, Carsten Kutzner, Per Larsson, Justin A. Lemkul,
 Viveca Lindahl, Magnus Lundborg, Erik Marklund,Pascal Merz,
 Pieter Meulenhoff, Teemu Murtola, Szilárd Páll, Sander Pronk,
 Roland Schulz, Michael Shirts, Alexey Shvetsov, Alfons Sijbers,
-Peter Tieleman, Teemu Virolainen, Christian Wennberg, and Maarten Wolf.
+Peter Tieleman, Teemu Virolainen, Christian Wennberg, Maarten Wolf,
+and Artem Zhmurov.
 
 Mark Abraham, Berk Hess, David van der Spoel, and Erik Lindahl.
 
@@ -37,7 +38,7 @@ which in some cases might mean the information is not entirely correct.
 Comments on form and content are welcome, please send them to one of
 the mailing lists (see our `webpage`_ or this section on
 how to :ref:`contribute <gmx-contribute>`), or open an issue
-on our `redmine`_. Corrections can also be made in the |Gromacs| git
+on our `issue tracker`_. Corrections can also be made in the |Gromacs| git
 source repository and uploaded to the |Gromacs| `gerrit`_.
 
 We release an updated version of the manual whenever
@@ -48,16 +49,9 @@ minor release number as your |Gromacs| installation.
 Citation information
 --------------------
 
-.. TODO needs link to ref list
+.. todo:: needs link to ref list
 
-When citing this document in any scientific publication
-please refer to it as:
-
-.. parsed-literal::
-
-    M.J. Abraham, D. van der Spoel, E. Lindahl, B. Hess, and the GROMACS development team,
-    |Gromacs| User Manual version |version|,
-    `http://www.gromacs.org <http://www.gromacs.org>`__ 
+|GMX_MANUAL_DOI_STRING|
 
 However, we prefer that you cite (some of) the |Gromacs|
 papers:

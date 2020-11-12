@@ -3,7 +3,8 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017 by the GROMACS development team.
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -42,26 +43,35 @@
 #include <vector>
 
 #include "gromacs/math/vectypes.h"
-#include "gromacs/mdtypes/interaction_const.h"
 #include "gromacs/mdtypes/md_enums.h"
+#include "gromacs/pbcutil/pbc.h"
 #include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
 
-struct ForceProviders;
+#include "locality.h"
 
 /* Abstract type for PME that is defined only in the routine that use them. */
-struct gmx_ns_t;
 struct gmx_pme_t;
 struct nonbonded_verlet_t;
 struct bonded_threading_t;
+class DeviceContext;
+class DispersionCorrection;
+class ListedForces;
+struct t_fcdata;
 struct t_forcetable;
 struct t_QMMMrec;
 
 namespace gmx
 {
+class DeviceStreamManager;
 class GpuBonded;
-}
+class GpuForceReduction;
+class ForceProviders;
+class StatePropagatorDataGpu;
+class PmePpCommGpu;
+class WholeMoleculeTransform;
+} // namespace gmx
 
 /* macros for the cginfo data in forcerec
  *
@@ -72,29 +82,23 @@ class GpuBonded;
  * because we only have space for 6 bits in cginfo,
  * this cg size entry is actually only read with domain decomposition.
  */
-#define SET_CGINFO_GID(cgi, gid)     (cgi) = (((cgi)  &  ~255) | (gid))
-#define GET_CGINFO_GID(cgi)        ( (cgi)            &   255)
-#define SET_CGINFO_FEP(cgi)          (cgi) =  ((cgi)  |  (1<<15))
-#define GET_CGINFO_FEP(cgi)        ( (cgi)            &  (1<<15))
-#define SET_CGINFO_EXCL_INTRA(cgi)   (cgi) =  ((cgi)  |  (1<<16))
-#define GET_CGINFO_EXCL_INTRA(cgi) ( (cgi)            &  (1<<16))
-#define SET_CGINFO_EXCL_INTER(cgi)   (cgi) =  ((cgi)  |  (1<<17))
-#define GET_CGINFO_EXCL_INTER(cgi) ( (cgi)            &  (1<<17))
-#define SET_CGINFO_SOLOPT(cgi, opt)  (cgi) = (((cgi)  & ~(3<<18)) | ((opt)<<18))
-#define GET_CGINFO_SOLOPT(cgi)     (((cgi)>>18)       &   3)
-#define SET_CGINFO_CONSTR(cgi)       (cgi) =  ((cgi)  |  (1<<20))
-#define GET_CGINFO_CONSTR(cgi)     ( (cgi)            &  (1<<20))
-#define SET_CGINFO_SETTLE(cgi)       (cgi) =  ((cgi)  |  (1<<21))
-#define GET_CGINFO_SETTLE(cgi)     ( (cgi)            &  (1<<21))
+#define SET_CGINFO_GID(cgi, gid) (cgi) = (((cgi) & ~255) | (gid))
+#define GET_CGINFO_GID(cgi) ((cgi)&255)
+#define SET_CGINFO_FEP(cgi) (cgi) = ((cgi) | (1 << 15))
+#define GET_CGINFO_FEP(cgi) ((cgi) & (1 << 15))
+#define SET_CGINFO_EXCL_INTER(cgi) (cgi) = ((cgi) | (1 << 17))
+#define GET_CGINFO_EXCL_INTER(cgi) ((cgi) & (1 << 17))
+#define SET_CGINFO_CONSTR(cgi) (cgi) = ((cgi) | (1 << 20))
+#define GET_CGINFO_CONSTR(cgi) ((cgi) & (1 << 20))
+#define SET_CGINFO_SETTLE(cgi) (cgi) = ((cgi) | (1 << 21))
+#define GET_CGINFO_SETTLE(cgi) ((cgi) & (1 << 21))
 /* This bit is only used with bBondComm in the domain decomposition */
-#define SET_CGINFO_BOND_INTER(cgi)   (cgi) =  ((cgi)  |  (1<<22))
-#define GET_CGINFO_BOND_INTER(cgi) ( (cgi)            &  (1<<22))
-#define SET_CGINFO_HAS_VDW(cgi)      (cgi) =  ((cgi)  |  (1<<23))
-#define GET_CGINFO_HAS_VDW(cgi)    ( (cgi)            &  (1<<23))
-#define SET_CGINFO_HAS_Q(cgi)        (cgi) =  ((cgi)  |  (1<<24))
-#define GET_CGINFO_HAS_Q(cgi)      ( (cgi)            &  (1<<24))
-#define SET_CGINFO_NATOMS(cgi, opt)  (cgi) = (((cgi)  & ~(63<<25)) | ((opt)<<25))
-#define GET_CGINFO_NATOMS(cgi)     (((cgi)>>25)       &   63)
+#define SET_CGINFO_BOND_INTER(cgi) (cgi) = ((cgi) | (1 << 22))
+#define GET_CGINFO_BOND_INTER(cgi) ((cgi) & (1 << 22))
+#define SET_CGINFO_HAS_VDW(cgi) (cgi) = ((cgi) | (1 << 23))
+#define GET_CGINFO_HAS_VDW(cgi) ((cgi) & (1 << 23))
+#define SET_CGINFO_HAS_Q(cgi) (cgi) = ((cgi) | (1 << 24))
+#define GET_CGINFO_HAS_Q(cgi) ((cgi) & (1 << 24))
 
 
 /* Value to be used in mdrun for an infinite cut-off.
@@ -104,16 +108,21 @@ class GpuBonded;
 #define GMX_CUTOFF_INF 1E+18
 
 /* enums for the neighborlist type */
-enum {
-    enbvdwNONE, enbvdwLJ, enbvdwBHAM, enbvdwTAB, enbvdwNR
+enum
+{
+    enbvdwNONE,
+    enbvdwLJ,
+    enbvdwBHAM,
+    enbvdwTAB,
+    enbvdwNR
 };
 
 struct cginfo_mb_t
 {
-    int  cg_start;
-    int  cg_end;
-    int  cg_mod;
-    int *cginfo;
+    int              cg_start = 0;
+    int              cg_end   = 0;
+    int              cg_mod   = 0;
+    std::vector<int> cginfo;
 };
 
 
@@ -122,20 +131,71 @@ struct gmx_ewald_tab_t;
 
 struct ewald_corr_thread_t;
 
-struct t_forcerec { // NOLINT (clang-analyzer-optin.performance.Padding)
-    struct interaction_const_t *ic = nullptr;
+/*! \brief Helper force buffers for ForceOutputs
+ *
+ * This class stores intermediate force buffers that are used
+ * internally in the force calculation and which are reduced into
+ * the output force buffer passed to the force calculation.
+ */
+class ForceHelperBuffers
+{
+public:
+    /*! \brief Constructs helper buffers
+     *
+     * When the forces that will be accumulated with help of these buffers
+     * have direct virial contributions, set the parameter to true, so
+     * an extra force buffer is available for these forces to enable
+     * correct virial computation.
+     */
+    ForceHelperBuffers(bool haveDirectVirialContributions);
+
+    //! Returns whether we have a direct virial contribution force buffer
+    bool haveDirectVirialContributions() const { return haveDirectVirialContributions_; }
+
+    //! Returns the buffer for direct virial contributions
+    gmx::ArrayRef<gmx::RVec> forceBufferForDirectVirialContributions()
+    {
+        GMX_ASSERT(haveDirectVirialContributions_, "Buffer can only be requested when present");
+        return forceBufferForDirectVirialContributions_;
+    }
+
+    //! Returns the buffer for shift forces, size SHIFTS
+    gmx::ArrayRef<gmx::RVec> shiftForces() { return shiftForces_; }
+
+    //! Resizes the direct virial contribution buffer, when present
+    void resize(int numAtoms);
+
+private:
+    //! True when we have contributions that are directly added to the virial
+    bool haveDirectVirialContributions_ = false;
+    //! Force buffer for force computation with direct virial contributions
+    std::vector<gmx::RVec> forceBufferForDirectVirialContributions_;
+    //! Shift force array for computing the virial, size SHIFTS
+    std::vector<gmx::RVec> shiftForces_;
+};
+
+struct t_forcerec
+{ // NOLINT (clang-analyzer-optin.performance.Padding)
+    // Declare an explicit constructor and destructor, so they can be
+    // implemented in a single source file, so that not every source
+    // file that includes this one needs to understand how to find the
+    // destructors of the objects pointed to by unique_ptr members.
+    t_forcerec();
+    ~t_forcerec();
+
+    struct interaction_const_t* ic = nullptr;
 
     /* PBC stuff */
-    int                         ePBC = 0;
+    PbcType pbcType = PbcType::Xyz;
     //! Tells whether atoms inside a molecule can be in different periodic images,
     //  i.e. whether we need to take into account PBC when computing distances inside molecules.
     //  This determines whether PBC must be considered for e.g. bonded interactions.
-    gmx_bool                    bMolPBC     = FALSE;
-    int                         rc_scaling  = 0;
-    rvec                        posres_com  = { 0 };
-    rvec                        posres_comB = { 0 };
+    gmx_bool bMolPBC     = FALSE;
+    int      rc_scaling  = 0;
+    rvec     posres_com  = { 0 };
+    rvec     posres_comB = { 0 };
 
-    gmx_bool                    use_simd_kernels = FALSE;
+    gmx_bool use_simd_kernels = FALSE;
 
     /* Interaction for calculated in kernels. In many cases this is similar to
      * the electrostatics settings in the inputrecord, but the difference is that
@@ -156,119 +216,70 @@ struct t_forcerec { // NOLINT (clang-analyzer-optin.performance.Padding)
      */
     real rlist = 0;
 
-    /* Parameters for generalized reaction field */
-    real zsquare = 0;
-    real temp    = 0;
-
-    /* Charge sum and dipole for topology A/B ([0]/[1]) for Ewald corrections */
-    double qsum[2]   = { 0 };
-    double q2sum[2]  = { 0 };
-    double c6sum[2]  = { 0 };
-    rvec   mu_tot[2] = { { 0 } };
+    /* Charge sum for topology A/B ([0]/[1]) for Ewald corrections */
+    double qsum[2]  = { 0 };
+    double q2sum[2] = { 0 };
+    double c6sum[2] = { 0 };
 
     /* Dispersion correction stuff */
-    int                  eDispCorr = 0;
-    int                  numAtomsForDispersionCorrection = 0;
-    struct t_forcetable *dispersionCorrectionTable       = nullptr;
-
-    /* The shift of the shift or user potentials */
-    real enershiftsix    = 0;
-    real enershifttwelve = 0;
-    /* Integrated differces for energy and virial with cut-off functions */
-    real enerdiffsix    = 0;
-    real enerdifftwelve = 0;
-    real virdiffsix     = 0;
-    real virdifftwelve  = 0;
-    /* Constant for long range dispersion correction (average dispersion)
-     * for topology A/B ([0]/[1]) */
-    real avcsix[2] = { 0 };
-    /* Constant for long range repulsion term. Relative difference of about
-     * 0.1 percent with 0.8 nm cutoffs. But hey, it's cheap anyway...
-     */
-    real avctwelve[2] = { 0 };
+    std::unique_ptr<DispersionCorrection> dispersionCorrection;
 
     /* Fudge factors */
     real fudgeQQ = 0;
 
     /* Table stuff */
-    gmx_bool             bcoultab = FALSE;
-    gmx_bool             bvdwtab  = FALSE;
+    gmx_bool bcoultab = FALSE;
+    gmx_bool bvdwtab  = FALSE;
 
-    struct t_forcetable *pairsTable; /* for 1-4 interactions, [pairs] and [pairs_nb] */
+    t_forcetable* pairsTable = nullptr; /* for 1-4 interactions, [pairs] and [pairs_nb] */
 
     /* Free energy */
-    int      efep          = 0;
-    real     sc_alphavdw   = 0;
-    real     sc_alphacoul  = 0;
-    int      sc_power      = 0;
-    real     sc_r_power    = 0;
-    real     sc_sigma6_def = 0;
-    real     sc_sigma6_min = 0;
+    int efep = 0;
 
-    /* NS Stuff */
-    int  cg0 = 0;
-    int  hcg = 0;
-    /* solvent_opt contains the enum for the most common solvent
-     * in the system, which will be optimized.
-     * It can be set to esolNO to disable all water optimization */
-    int                 solvent_opt                  = 0;
-    int                 nWatMol                      = 0;
-    gmx_bool            bGrid                        = FALSE;
-    gmx_bool            bExcl_IntraCGAll_InterCGNone = FALSE;
-    struct cginfo_mb_t *cginfo_mb                    = nullptr;
-    std::vector<int>    cginfo;
-    rvec               *shift_vec                    = nullptr;
+    /* Information about atom properties for the molecule blocks in the system */
+    std::vector<cginfo_mb_t> cginfo_mb;
+    /* Information about atom properties for local and non-local atoms */
+    std::vector<int> cginfo;
 
-    int                 cutoff_scheme = 0;     /* group- or Verlet-style cutoff */
-    gmx_bool            bNonbonded    = FALSE; /* true if nonbonded calculations are *not* turned off */
+    rvec* shift_vec = nullptr;
+
+    std::unique_ptr<gmx::WholeMoleculeTransform> wholeMoleculeTransform;
 
     /* The Nbnxm Verlet non-bonded machinery */
     std::unique_ptr<nonbonded_verlet_t> nbv;
 
     /* The wall tables (if used) */
-    int                    nwall    = 0;
-    struct t_forcetable ***wall_tab = nullptr;
+    int             nwall    = 0;
+    t_forcetable*** wall_tab = nullptr;
 
-    /* The number of charge groups participating in do_force_lowlevel */
-    int ncg_force = 0;
     /* The number of atoms participating in do_force_lowlevel */
     int natoms_force = 0;
-    /* The number of atoms participating in force and constraints */
+    /* The number of atoms participating in force calculation and constraints */
     int natoms_force_constr = 0;
-    /* The allocation size of vectors of size natoms_force */
-    int nalloc_force = 0;
 
-    /* Forces that should not enter into the coord x force virial summation:
-     * PPPM/PME/Ewald/posres/ForceProviders
-     */
-    /* True when we have contributions that are directly added to the virial */
-    gmx_bool                 haveDirectVirialContributions = FALSE;
-    /* TODO: Replace the pointer by an object once we got rid of C */
-    std::vector<gmx::RVec>  *forceBufferForDirectVirialContributions = nullptr;
+    /* List of helper buffers for ForceOutputs, one for each time step with MTS */
+    std::vector<ForceHelperBuffers> forceHelperBuffers;
 
     /* Electostatic potential buffer, we should compute the potential when not empty */
-    gmx::ArrayRef<real>      electrostaticPotential;
+    gmx::ArrayRef<real> electrostaticPotential;
     /* This pointer is only here to avoid changing the do_force() call signature */
-    const class ConstantPH  *constantPH             = nullptr;
+    const class ConstantPH* constantPH = nullptr;
 
     /* Data for PPPM/PME/Ewald */
-    struct gmx_pme_t *pmedata                = nullptr;
+    struct gmx_pme_t* pmedata                = nullptr;
     int               ljpme_combination_rule = 0;
 
     /* PME/Ewald stuff */
-    struct gmx_ewald_tab_t *ewald_table = nullptr;
-
-    /* Shift force array for computing the virial */
-    rvec *fshift = nullptr;
+    struct gmx_ewald_tab_t* ewald_table = nullptr;
 
     /* Non bonded Parameter lists */
-    int      ntype        = 0; /* Number of atom types */
-    gmx_bool bBHAM        = FALSE;
-    real    *nbfp         = nullptr;
-    real    *ljpme_c6grid = nullptr; /* C6-values used on grid in LJPME */
+    int               ntype = 0; /* Number of atom types */
+    gmx_bool          bBHAM = FALSE;
+    std::vector<real> nbfp;
+    real*             ljpme_c6grid = nullptr; /* C6-values used on grid in LJPME */
 
     /* Energy group pair flags */
-    int *egp_flags = nullptr;
+    int* egp_flags = nullptr;
 
     /* Shell molecular dynamics flexible constraints */
     real fc_stepsize = 0;
@@ -279,13 +290,6 @@ struct t_forcerec { // NOLINT (clang-analyzer-optin.performance.Padding)
      * should be calculated.
      */
     int n_tpi = 0;
-
-    /* QMMM stuff */
-    gmx_bool          bQMMM = FALSE;
-    struct t_QMMMrec *qr    = nullptr;
-
-    /* QM-MM neighborlists */
-    struct t_nblist        *QMMMlist = nullptr;
 
     /* Limit for printing large forces, negative is don't print */
     real print_force = 0;
@@ -300,27 +304,49 @@ struct t_forcerec { // NOLINT (clang-analyzer-optin.performance.Padding)
     real userreal3 = 0;
     real userreal4 = 0;
 
-    /* Pointer to struct for managing threading of bonded force calculation */
-    struct bonded_threading_t *bondedThreading = nullptr;
+    /* Tells whether we use multiple time stepping, computing some forces less frequently */
+    bool useMts = false;
+
+    /* Data for special listed force calculations */
+    std::unique_ptr<t_fcdata> fcdata;
+
+    // The listed forces calculation data, 1 entry or multiple entries with multiple time stepping
+    std::vector<ListedForces> listedForces;
 
     /* TODO: Replace the pointer by an object once we got rid of C */
-    gmx::GpuBonded *gpuBonded = nullptr;
+    gmx::GpuBonded* gpuBonded = nullptr;
 
     /* Ewald correction thread local virial and energy data */
     int                         nthread_ewc = 0;
-    struct ewald_corr_thread_t *ewc_t       = nullptr;
+    struct ewald_corr_thread_t* ewc_t       = nullptr;
 
-    struct ForceProviders      *forceProviders = nullptr;
+    gmx::ForceProviders* forceProviders = nullptr;
+
+    // The stateGpu object is created in runner, forcerec just keeps the copy of the pointer.
+    // TODO: This is not supposed to be here. StatePropagatorDataGpu should be a part of
+    //       general StatePropagatorData object that is passed around
+    gmx::StatePropagatorDataGpu* stateGpu = nullptr;
+    // TODO: Should not be here. This is here only to pass the pointer around.
+    gmx::DeviceStreamManager* deviceStreamManager = nullptr;
+
+    //! GPU device context
+    DeviceContext* deviceContext = nullptr;
+
+    /* For PME-PP GPU communication */
+    std::unique_ptr<gmx::PmePpCommGpu> pmePpCommGpu;
+
+    /* For GPU force reduction (on both local and non-local atoms) */
+    gmx::EnumerationArray<gmx::AtomLocality, std::unique_ptr<gmx::GpuForceReduction>> gpuForceReduction;
 };
 
 /* Important: Starting with Gromacs-4.6, the values of c6 and c12 in the nbfp array have
  * been scaled by 6.0 or 12.0 to save flops in the kernels. We have corrected this everywhere
  * in the code, but beware if you are using these macros externally.
  */
-#define C6(nbfp, ntp, ai, aj)     (nbfp)[2*((ntp)*(ai)+(aj))]
-#define C12(nbfp, ntp, ai, aj)    (nbfp)[2*((ntp)*(ai)+(aj))+1]
-#define BHAMC(nbfp, ntp, ai, aj)  (nbfp)[3*((ntp)*(ai)+(aj))]
-#define BHAMA(nbfp, ntp, ai, aj)  (nbfp)[3*((ntp)*(ai)+(aj))+1]
-#define BHAMB(nbfp, ntp, ai, aj)  (nbfp)[3*((ntp)*(ai)+(aj))+2]
+#define C6(nbfp, ntp, ai, aj) (nbfp)[2 * ((ntp) * (ai) + (aj))]
+#define C12(nbfp, ntp, ai, aj) (nbfp)[2 * ((ntp) * (ai) + (aj)) + 1]
+#define BHAMC(nbfp, ntp, ai, aj) (nbfp)[3 * ((ntp) * (ai) + (aj))]
+#define BHAMA(nbfp, ntp, ai, aj) (nbfp)[3 * ((ntp) * (ai) + (aj)) + 1]
+#define BHAMB(nbfp, ntp, ai, aj) (nbfp)[3 * ((ntp) * (ai) + (aj)) + 2]
 
 #endif

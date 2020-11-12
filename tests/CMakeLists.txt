@@ -1,7 +1,8 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+# Copyright (c) 2012,2013,2014,2015,2016, The GROMACS development team.
+# Copyright (c) 2017,2018,2019,2020, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -39,10 +40,10 @@ option(REGRESSIONTEST_DOWNLOAD
 
 if(REGRESSIONTEST_DOWNLOAD)
     if (NOT SOURCE_IS_SOURCE_DISTRIBUTION)
-        set(REGRESSIONTEST_URL http://gerrit.gromacs.org/snapshot/${REGRESSIONTEST_BRANCH})
+        set(REGRESSIONTEST_URL https://gitlab.com/gromacs/gromacs-regressiontests/-/archive/${REGRESSIONTEST_BRANCH}/gromacs-regressiontests-${REGRESSIONTEST_BRANCH}.tar.gz)
         # REGRESSIONTEST_PATH for dev trees is set later based on the dirname found in the tar
     else()
-        set(REGRESSIONTEST_URL http://gerrit.gromacs.org/download/regressiontests-${REGRESSIONTEST_VERSION}.tar.gz)
+        set(REGRESSIONTEST_URL http://ftp.gromacs.org/regressiontests/regressiontests-${REGRESSIONTEST_VERSION}.tar.gz)
         set(REGRESSIONTEST_PATH
             "${CMAKE_CURRENT_BINARY_DIR}/regressiontests-${REGRESSIONTEST_VERSION}"
             CACHE PATH "Path to auto-downloaded regressiontests" FORCE)
@@ -116,6 +117,12 @@ if(REGRESSIONTEST_PATH)
         message(WARNING
             "Please set MPIEXEC. Otherwise mpirun is assumed for running tests.")
     endif()
+    if(DEFINED ENV{CI_JOB_ID} AND GMX_OPENMP)
+        set(GMX_REGRESSIONTEST_OMP_THREADS 2 CACHE STRING
+            "Number of OpenMP threads to use with the regression tests")
+        mark_as_advanced(GMX_REGRESSIONTEST_OMP_THREADS)
+        list(APPEND ARGS -ntomp ${GMX_REGRESSIONTEST_OMP_THREADS})
+    endif()
     if(GMX_LIB_MPI)
         set(GMX_TEST_NUMBER_PROCS 8 CACHE STRING "Number of processors used for testing")
         mark_as_advanced(GMX_TEST_NUMBER_PROCS)
@@ -138,6 +145,12 @@ if(REGRESSIONTEST_PATH)
     mark_as_advanced(REGRESSIONTEST_EXTRA_ARGS)
     list(APPEND ARGS ${REGRESSIONTEST_EXTRA_ARGS})
 
+    if(DEFINED ENV{CI_JOB_ID} AND GMX_THREAD_MPI)
+        set(GMX_REGRESSIONTEST_THREAD_MPI_THREADS 2 CACHE STRING
+        "Number of thread MPI threads to use for testing")
+        mark_as_advanced(GMX_REGRESSIONTEST_THREAD_MPI_THREADS)
+        list(APPEND ARGS -nt ${GMX_REGRESSIONTEST_THREAD_MPI_THREADS})
+    endif()
     list(APPEND ARGS -noverbose -nosuffix)
 
     if(GMX_NATIVE_WINDOWS)
@@ -183,6 +196,7 @@ endif()
 # Physical validation tests are opt-in via -DGMX_PHYSICAL_VALIDATION=ON
 #
 if(GMX_PHYSICAL_VALIDATION)
+    include(FindPythonModule)
     # physical validation suite is distributed with the source
     set(PHYSVALTEST_SOURCE_PATH
             "${CMAKE_CURRENT_SOURCE_DIR}/physicalvalidation")
@@ -276,21 +290,11 @@ if(GMX_PHYSICAL_VALIDATION)
         # End copied from regression tests.
         #
 
-        #
-        # TODO: Switch to python >= 3.3. For now, use 2.7 for compatibility with rest of build system.
-        #
-        # ${PYTHON_EXECUTABLE} can only be set for one version per build system.
-        # Currently, the following files set 2.7 explicitly:
-        # * cmake/CheckTarget.cmake
-        # * docs/CMakeList.txt
-        # Parts of the documentation rely on python scripts.
-        # These need to be ported to be able to make the move to python 3.
-        #
-        if (NOT PYTHON_EXECUTABLE)
+        if (NOT Python3_Interpreter_FOUND)
             message(FATAL_ERROR
-                    "Python not found. Physical validation relies on python >= 3.3 (python 2.7 supported, but\
-                    deprecated). Install python, set PYTHON_EXECUTABLE to the python location, or set\
-                    GMX_PHYSCIAL_VALIDATION=OFF to disable the physical validation tests.")
+                    "Python not found. Physical validation requires python. \
+                     Install python, set Python3_ROOT_DIR or PYTHON_EXECUTABLE to a valid location, \
+                     or set GMX_PHYSICAL_VALIDATION=OFF to disable the physical validation tests.")
         endif()
         #
         foreach(module numpy scipy pymbar) # add further modules if necessary
@@ -299,7 +303,7 @@ if(GMX_PHYSICAL_VALIDATION)
             if(NOT PYTHONMODULE_${module_upper})
                 message(WARNING
                         "Python module ${module} not found. Physical validation relies on ${module}. Make sure\
-                        ${module} can be found by PYTHON_EXECUTABLE, or set GMX_PHYSCIAL_VALIDATION=OFF to disable\
+                        ${module} can be found by PYTHON_EXECUTABLE, or set GMX_PHYSICAL_VALIDATION=OFF to disable\
                         the physical validation tests.")
             endif()
         endforeach()

@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016 by the GROMACS development team.
+ * Copyright (c) 2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -52,9 +53,13 @@
 #include "gromacs/options/options.h"
 #include "gromacs/options/optionsvisitor.h"
 #include "gromacs/utility/arrayref.h"
+#include "gromacs/utility/enumerationhelpers.h"
 #include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/stringutil.h"
+
+namespace gmx
+{
 
 namespace
 {
@@ -64,55 +69,34 @@ namespace
  *
  * These must correspond to the TimeUnit enum in the header!
  */
-const char *const g_timeUnits[] = {
-    "fs", "ps", "ns", "us", "ms",  "s"
-};
+const EnumerationArray<TimeUnit, const char*> c_timeUnitNames = { { "fs", "ps", "ns", "us", "ms",
+                                                                    "s" } };
 /*! \brief
  * Scaling factors from each time unit to internal units (=picoseconds).
  *
  * These must correspond to the TimeUnit enum in the header!
  */
-const double g_timeScaleFactors[] = {
-    1e-3,    1,  1e3,  1e6,  1e9, 1e12
-};
+const EnumerationArray<TimeUnit, double> c_timeUnitScaleFactors = { { 1e-3, 1, 1e3, 1e6, 1e9, 1e12 } };
 
 } // namespace
 
-namespace gmx
-{
+TimeUnitManager::TimeUnitManager() : timeUnit_(TimeUnit::Default) {}
 
-TimeUnitManager::TimeUnitManager()
-    : timeUnit_(TimeUnit_Default)
-{
-}
-
-TimeUnitManager::TimeUnitManager(TimeUnit unit)
-    : timeUnit_(unit)
-{
-    GMX_RELEASE_ASSERT(unit >= 0 && unit <= TimeUnit_s,
-                       "Invalid time unit");
-}
+TimeUnitManager::TimeUnitManager(TimeUnit unit) : timeUnit_(unit) {}
 
 void TimeUnitManager::setTimeUnit(TimeUnit unit)
 {
-    GMX_RELEASE_ASSERT(unit >= 0 && unit <= TimeUnit_s,
-                       "Invalid time unit");
     timeUnit_ = unit;
 }
 
-const char *TimeUnitManager::timeUnitAsString() const
+const char* TimeUnitManager::timeUnitAsString() const
 {
-    GMX_RELEASE_ASSERT(timeUnit_ >= 0 && timeUnit_ <= TimeUnit_s,
-                       "Invalid time unit");
-    return g_timeUnits[timeUnit_];
+    return c_timeUnitNames[timeUnit_];
 }
 
 double TimeUnitManager::timeScaleFactor() const
 {
-    GMX_RELEASE_ASSERT(timeUnit_ >= 0
-                       && static_cast<size_t>(timeUnit_) < sizeof(g_timeScaleFactors)/sizeof(g_timeScaleFactors[0]),
-                       "Time unit index has become out-of-range");
-    return g_timeScaleFactors[timeUnit_];
+    return c_timeUnitScaleFactors[timeUnit_];
 }
 
 double TimeUnitManager::inverseTimeScaleFactor() const
@@ -124,15 +108,10 @@ double TimeUnitManager::inverseTimeScaleFactor() const
  * TimeUnitBehavior
  */
 
-TimeUnitBehavior::TimeUnitBehavior()
-    : timeUnit_(TimeUnit_Default), timeUnitStore_(nullptr)
-{
-}
+TimeUnitBehavior::TimeUnitBehavior() : timeUnit_(TimeUnit::Default), timeUnitStore_(nullptr) {}
 
 void TimeUnitBehavior::setTimeUnit(TimeUnit unit)
 {
-    GMX_RELEASE_ASSERT(unit >= 0 && unit <= TimeUnit_s,
-                       "Invalid time unit");
     timeUnit_ = unit;
     if (timeUnitStore_ != nullptr)
     {
@@ -140,7 +119,7 @@ void TimeUnitBehavior::setTimeUnit(TimeUnit unit)
     }
 }
 
-void TimeUnitBehavior::setTimeUnitStore(TimeUnit *store)
+void TimeUnitBehavior::setTimeUnitStore(TimeUnit* store)
 {
     timeUnitStore_ = store;
     *store         = timeUnit();
@@ -148,30 +127,35 @@ void TimeUnitBehavior::setTimeUnitStore(TimeUnit *store)
 
 void TimeUnitBehavior::setTimeUnitFromEnvironment()
 {
-    const char *const value = std::getenv("GMXTIMEUNIT");
+    const char* const value = std::getenv("GMXTIMEUNIT");
     if (value != nullptr)
     {
-        ArrayRef<const char *const>                 timeUnits(g_timeUnits);
-        ArrayRef<const char *const>::const_iterator i =
-            std::find(timeUnits.begin(), timeUnits.end(), std::string(value));
-        if (i == timeUnits.end())
+        TimeUnit result = TimeUnit::Count;
+        for (TimeUnit t : keysOf(c_timeUnitNames))
+        {
+            if (std::strcmp(value, c_timeUnitNames[t]) == 0)
+            {
+                result = t;
+                break;
+            }
+        }
+        if (result == TimeUnit::Count)
         {
             std::string message = formatString(
-                        "Time unit provided with environment variable GMXTIMEUNIT=%s "
-                        "is not recognized as a valid time unit.\n"
-                        "Possible values are: %s",
-                        value, joinStrings(timeUnits, ", ").c_str());
+                    "Time unit provided with environment variable GMXTIMEUNIT=%s "
+                    "is not recognized as a valid time unit.\n"
+                    "Possible values are: %s",
+                    value, joinStrings(c_timeUnitNames, ", ").c_str());
             GMX_THROW(InvalidInputError(message));
         }
-        setTimeUnit(static_cast<TimeUnit>(i - timeUnits.begin()));
+        setTimeUnit(result);
     }
 }
 
-void TimeUnitBehavior::addTimeUnitOption(IOptionsContainer *options, const char *name)
+void TimeUnitBehavior::addTimeUnitOption(IOptionsContainer* options, const char* name)
 {
-    options->addOption(EnumOption<TimeUnit>(name).enumValue(g_timeUnits)
-                           .store(&timeUnit_)
-                           .description("Unit for time values"));
+    options->addOption(
+            EnumOption<TimeUnit>(name).enumValue(c_timeUnitNames).store(&timeUnit_).description("Unit for time values"));
 }
 
 namespace
@@ -185,35 +169,35 @@ namespace
  *
  * \ingroup module_options
  */
-template <class FloatingPointOptionInfo>
+template<class FloatingPointOptionInfo>
 class TimeOptionScaler : public OptionsModifyingTypeVisitor<FloatingPointOptionInfo>
 {
-    public:
-        //! Initializes a scaler with the given factor.
-        explicit TimeOptionScaler(double factor) : factor_(factor) {}
+public:
+    //! Initializes a scaler with the given factor.
+    explicit TimeOptionScaler(double factor) : factor_(factor) {}
 
-        void visitSection(OptionSectionInfo *section) override
+    void visitSection(OptionSectionInfo* section) override
+    {
+        OptionsModifyingIterator iterator(section);
+        iterator.acceptSections(this);
+        iterator.acceptOptions(this);
+    }
+
+    void visitOptionType(FloatingPointOptionInfo* option) override
+    {
+        if (option->isTime())
         {
-            OptionsModifyingIterator iterator(section);
-            iterator.acceptSections(this);
-            iterator.acceptOptions(this);
+            option->setScaleFactor(factor_);
         }
+    }
 
-        void visitOptionType(FloatingPointOptionInfo *option) override
-        {
-            if (option->isTime())
-            {
-                option->setScaleFactor(factor_);
-            }
-        }
-
-    private:
-        double                  factor_;
+private:
+    double factor_;
 };
 
-}   // namespace
+} // namespace
 
-void TimeUnitBehavior::optionsFinishing(Options *options)
+void TimeUnitBehavior::optionsFinishing(Options* options)
 {
     double factor = TimeUnitManager(timeUnit()).timeScaleFactor();
     TimeOptionScaler<DoubleOptionInfo>(factor).visitSection(&options->rootSection());

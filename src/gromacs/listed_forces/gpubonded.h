@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2016,2017,2018 by the GROMACS development team.
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -48,23 +49,31 @@
 #ifndef GMX_LISTED_FORCES_GPUBONDED_H
 #define GMX_LISTED_FORCES_GPUBONDED_H
 
+#include "gromacs/gpu_utils/devicebuffer_datatype.h"
 #include "gromacs/math/vectypes.h"
+#include "gromacs/pbcutil/pbc.h"
 #include "gromacs/topology/idef.h"
-#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/classhelpers.h"
+
+class DeviceContext;
+class DeviceStream;
 
 struct gmx_enerdata_t;
 struct gmx_ffparams_t;
 struct gmx_mtop_t;
-struct t_forcerec;
-struct t_idef;
 struct t_inputrec;
+struct gmx_wallcycle;
+
 
 namespace gmx
 {
 
+template<typename>
+class ArrayRef;
+class StepWorkload;
+
 /*! \brief The number on bonded function types supported on GPUs */
-constexpr int c_numFtypesOnGpu = 8;
+static constexpr int numFTypesOnGpu = 8;
 
 /*! \brief List of all bonded function types supported on GPUs
  *
@@ -73,17 +82,9 @@ constexpr int c_numFtypesOnGpu = 8;
  * \note The function types in the list are ordered on increasing value.
  * \note Currently bonded are only supported with CUDA, not with OpenCL.
  */
-constexpr std::array<int, c_numFtypesOnGpu> ftypesOnGpu =
-{
-    F_BONDS,
-    F_ANGLES,
-    F_UREY_BRADLEY,
-    F_PDIHS,
-    F_RBDIHS,
-    F_IDIHS,
-    F_PIDIHS,
-    F_LJ14
-};
+constexpr std::array<int, numFTypesOnGpu> fTypesOnGpu = { F_BONDS,  F_ANGLES, F_UREY_BRADLEY,
+                                                          F_PDIHS,  F_RBDIHS, F_IDIHS,
+                                                          F_PIDIHS, F_LJ14 };
 
 /*! \brief Checks whether the GROMACS build allows to compute bonded interactions on a GPU.
  *
@@ -93,7 +94,7 @@ constexpr std::array<int, c_numFtypesOnGpu> ftypesOnGpu =
  *
  * \throws std::bad_alloc when out of memory.
  */
-bool buildSupportsGpuBondeds(std::string *error);
+bool buildSupportsGpuBondeds(std::string* error);
 
 /*! \brief Checks whether the input system allows to compute bonded interactions on a GPU.
  *
@@ -103,48 +104,101 @@ bool buildSupportsGpuBondeds(std::string *error);
  *
  * \returns true if PME can run on GPU with this input, false otherwise.
  */
-bool inputSupportsGpuBondeds(const t_inputrec &ir,
-                             const gmx_mtop_t &mtop,
-                             std::string      *error);
+bool inputSupportsGpuBondeds(const t_inputrec& ir, const gmx_mtop_t& mtop, std::string* error);
 
 class GpuBonded
 {
-    public:
-        //! Construct the manager with constant data and the stream to use.
-        GpuBonded(const gmx_ffparams_t &ffparams,
-                  void                 *streamPtr);
-        //! Destructor
-        ~GpuBonded();
+public:
+    /*! \brief Construct the manager with constant data and the stream to use.
+     *
+     * \param[in] ffparams                   Force-field parameters.
+     * \param[in] electrostaticsScaleFactor  Scaling factor for the electrostatic potential
+     *                                       (Coulomb constant, multiplied by the Fudge factor).
+     * \param[in] deviceContext              GPU device context (not used in CUDA).
+     * \param[in] deviceStream               GPU device stream.
+     * \param[in] wcycle                     The wallclock counter.
+     *
+     */
+    GpuBonded(const gmx_ffparams_t& ffparams,
+              float                 electrostaticsScaleFactor,
+              const DeviceContext&  deviceContext,
+              const DeviceStream&   deviceStream,
+              gmx_wallcycle*        wcycle);
+    //! Destructor
+    ~GpuBonded();
 
-        /*! \brief Update lists of interactions from idef suitable for the GPU,
-         * using the data structures prepared for PP work.
-         *
-         * Intended to be called after each neighbour search
-         * stage. Copies the bonded interactions assigned to the GPU
-         * to device data structures, and updates device buffers that
-         * may have been updated after search. */
-        void updateInteractionListsAndDeviceBuffers(ArrayRef<const int>  nbnxnAtomOrder,
-                                                    const t_idef        &idef,
-                                                    void                *xqDevice,
-                                                    void                *forceDevice,
-                                                    void                *fshiftDevice);
-        /*! \brief Returns whether there are bonded interactions
-         * assigned to the GPU */
-        bool haveInteractions() const;
-        /*! \brief Launches bonded kernels on a GPU */
-        void launchKernels(const t_forcerec *fr,
-                           int               forceFlags,
-                           const matrix      box);
-        /*! \brief Launches the transfer of computed bonded energies. */
-        void launchEnergyTransfer();
-        /*! \brief Waits on the energy transfer, and accumulates bonded energies to \c enerd. */
-        void accumulateEnergyTerms(gmx_enerdata_t *enerd);
-        /*! \brief Clears the device side energy buffer */
-        void clearEnergies();
+    /*! \brief Update lists of interactions from idef suitable for the GPU,
+     * using the data structures prepared for PP work.
+     *
+     * Intended to be called after each neighbour search
+     * stage. Copies the bonded interactions assigned to the GPU
+     * to device data structures, and updates device buffers that
+     * may have been updated after search.
+     *
+     * \param[in]     nbnxnAtomOrder  Mapping between rvec and NBNXM formats.
+     * \param[in]     idef            List of interactions to compute.
+     * \param[in]     xqDevice        Device buffer with coordinates and charge in xyzq-format.
+     * \param[in,out] forceDevice     Device buffer with forces.
+     * \param[in,out] fshiftDevice    Device buffer with shift forces.
+     */
+    void updateInteractionListsAndDeviceBuffers(ArrayRef<const int>           nbnxnAtomOrder,
+                                                const InteractionDefinitions& idef,
+                                                void*                         xqDevice,
+                                                DeviceBuffer<RVec>            forceDevice,
+                                                DeviceBuffer<RVec>            fshiftDevice);
+    /*! \brief
+     * Update PBC data.
+     *
+     * Converts PBC data from t_pbc into the PbcAiuc format and stores the latter.
+     *
+     * \param[in] pbcType The type of the periodic boundary.
+     * \param[in] box     The periodic boundary box matrix.
+     * \param[in] canMoleculeSpanPbc  Whether one molecule can have atoms in different PBC cells.
+     */
+    void setPbc(PbcType pbcType, const matrix box, bool canMoleculeSpanPbc);
 
-    private:
-        class Impl;
-        PrivateImplPointer<Impl> impl_;
+    /*! \brief Returns whether there are bonded interactions
+     * assigned to the GPU
+     *
+     * \returns If the list of interaction has elements.
+     */
+    bool haveInteractions() const;
+
+    /*! \brief Launches bonded kernel on a GPU
+     *
+     * \param[in]  stepWork  Simulation step work to determine if energy/virial are to be computed on this step.
+     */
+    void launchKernel(const gmx::StepWorkload& stepWork);
+
+    /*! \brief Sets the PBC and launches bonded kernel on a GPU
+     *
+     * \param[in] pbcType The type of the periodic boundary.
+     * \param[in] box     The periodic boundary box matrix.
+     * \param[in] canMoleculeSpanPbc  Whether one molecule can have atoms in different PBC cells.
+     * \param[in] stepWork  Simulation step work to determine if energy/virial are to be computed on this step.
+     */
+    void setPbcAndlaunchKernel(PbcType                  pbcType,
+                               const matrix             box,
+                               bool                     canMoleculeSpanPbc,
+                               const gmx::StepWorkload& stepWork);
+
+    /*! \brief Launches the transfer of computed bonded energies.
+     */
+    void launchEnergyTransfer();
+
+    /*! \brief Waits on the energy transfer, and accumulates bonded energies to \c enerd.
+     *
+     * \param[in,out] enerd The energy data object to add energy terms to.
+     */
+    void waitAccumulateEnergyTerms(gmx_enerdata_t* enerd);
+
+    /*! \brief Clears the device side energy buffer
+     */
+    void clearEnergies();
+
+private:
+    class Impl;
+    PrivateImplPointer<Impl> impl_;
 };
 
 } // namespace gmx

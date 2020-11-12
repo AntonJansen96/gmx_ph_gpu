@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -40,8 +40,8 @@
  *
  * \todo CPU, GPU and SIMD routines essentially do the same operations on
  *       different data-types. Currently this leads to code duplication,
- *       which has to be resolved. For details, see Redmine task #2863
- *       https://redmine.gromacs.org/issues/2863
+ *       which has to be resolved. For details, see Issue #2863
+ *       https://gitlab.com/gromacs/gromacs/-/issues/2863
  *
  * \author Mark Abraham <mark.j.abraham@gmail.com>
  * \author Berk Hess <hess@kth.se>
@@ -96,9 +96,7 @@ struct PbcAiuc
  * \param[out]  pbcAiuc     Pointer to PbcAiuc structure to be initialized.
  *
  */
-static void setPbcAiuc(int           numPbcDim,
-                       const matrix  box,
-                       PbcAiuc      *pbcAiuc)
+static inline void setPbcAiuc(int numPbcDim, const matrix box, PbcAiuc* pbcAiuc)
 {
 
     pbcAiuc->invBoxDiagZ = 0.0f;
@@ -113,20 +111,20 @@ static void setPbcAiuc(int           numPbcDim,
 
     if (numPbcDim > ZZ)
     {
-        pbcAiuc->invBoxDiagZ = 1.0f/box[ZZ][ZZ];
+        pbcAiuc->invBoxDiagZ = 1.0f / box[ZZ][ZZ];
         pbcAiuc->boxZX       = box[ZZ][XX];
         pbcAiuc->boxZY       = box[ZZ][YY];
         pbcAiuc->boxZZ       = box[ZZ][ZZ];
     }
     if (numPbcDim > YY)
     {
-        pbcAiuc->invBoxDiagY = 1.0f/box[YY][YY];
+        pbcAiuc->invBoxDiagY = 1.0f / box[YY][YY];
         pbcAiuc->boxYX       = box[YY][XX];
         pbcAiuc->boxYY       = box[YY][YY];
     }
     if (numPbcDim > XX)
     {
-        pbcAiuc->invBoxDiagX = 1.0f/box[XX][XX];
+        pbcAiuc->invBoxDiagX = 1.0f / box[XX][XX];
         pbcAiuc->boxXX       = box[XX][XX];
     }
 }
@@ -145,36 +143,32 @@ static void setPbcAiuc(int           numPbcDim,
  * \todo This routine operates on rvec types and uses PbcAiuc to define
  *       periodic box, but essentially does the same thing as SIMD and GPU
  *       version. These will have to be unified in future to avoid code
- *       duplication. See Redmine task #2863:
- *       https://redmine.gromacs.org/issues/2863
+ *       duplication. See Issue #2863:
+ *       https://gitlab.com/gromacs/gromacs/-/issues/2863
  *
  * \param[in]  pbcAiuc  PBC object.
  * \param[in]  r1       Coordinates of the first point.
  * \param[in]  r2       Coordinates of the second point.
  * \param[out] dr       Resulting distance.
  */
-static inline
-void pbcDxAiuc(const PbcAiuc  &pbcAiuc,
-               const rvec     &r1,
-               const rvec     &r2,
-               rvec            dr)
+static inline void pbcDxAiuc(const PbcAiuc& pbcAiuc, const rvec& r1, const rvec& r2, rvec dr)
 {
     dr[XX] = r1[XX] - r2[XX];
     dr[YY] = r1[YY] - r2[YY];
     dr[ZZ] = r1[ZZ] - r2[ZZ];
 
-    float shz  = rintf(dr[ZZ]*pbcAiuc.invBoxDiagZ);
-    dr[XX]    -= shz*pbcAiuc.boxZX;
-    dr[YY]    -= shz*pbcAiuc.boxZY;
-    dr[ZZ]    -= shz*pbcAiuc.boxZZ;
+    float shz = rintf(dr[ZZ] * pbcAiuc.invBoxDiagZ);
+    dr[XX] -= shz * pbcAiuc.boxZX;
+    dr[YY] -= shz * pbcAiuc.boxZY;
+    dr[ZZ] -= shz * pbcAiuc.boxZZ;
 
-    float shy  = rintf(dr[YY]*pbcAiuc.invBoxDiagY);
-    dr[XX]    -= shy*pbcAiuc.boxYX;
-    dr[YY]    -= shy*pbcAiuc.boxYY;
+    float shy = rintf(dr[YY] * pbcAiuc.invBoxDiagY);
+    dr[XX] -= shy * pbcAiuc.boxYX;
+    dr[YY] -= shy * pbcAiuc.boxYY;
 
-    float shx  = rintf(dr[XX]*pbcAiuc.invBoxDiagX);
-    dr[XX]    -= shx*pbcAiuc.boxXX;
+    float shx = rintf(dr[XX] * pbcAiuc.invBoxDiagX);
+    dr[XX] -= shx * pbcAiuc.boxXX;
 }
 
 
-#endif //GMX_PBCUTIL_PBC_AIUC_H
+#endif // GMX_PBCUTIL_PBC_AIUC_H

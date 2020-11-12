@@ -12,23 +12,16 @@
 # Build from the GROMACS image at the current fork point. Tag with the feature
 # name or the current revision.
 #
-#    FORKPOINT=$(git show -s --pretty=format:"%h" `git merge-base gerrit_master HEAD`)
+#    FORKPOINT=$(git show -s --pretty=format:"%h" `git merge-base master HEAD`)
 #    REF=`git show -s --pretty=format:"%h"`
 #    # or
 #    REF="fr1"
 #    docker build -t gmxapi/ci-mpich:${REF} --build-arg REF=${FORKPOINT} -f ci.dockerfile ..
 #
 
-#
-# Use gromacs installation from gmxapi/gromacs image
-#
-
 ARG REF=latest
-FROM gmxapi/gromacs-mpich:$REF as gromacs
-# This intermediate is necessary because the COPY command does not support syntax like the following:
-#COPY --from=gmxapi/gromacs:$REF /usr/local/gromacs /usr/local/gromacs
 
-FROM gmxapi/gromacs-dependencies-mpich
+FROM gmxapi/gromacs-dependencies-mpich as python-base
 
 RUN apt-get update && \
     apt-get -yq --no-install-suggests --no-install-recommends install \
@@ -40,48 +33,74 @@ RUN apt-get update && \
 # TODO: Use non-system Python installations for explicit version coverage.
 # Consider pyenv for generic management of Python environment.
 
-ENV CMAKE_ROOT /usr/local/cmake
-ENV PATH $CMAKE_ROOT/bin:$PATH
-
 RUN groupadd -r testing && useradd -m -s /bin/bash -g testing testing
 
 USER testing
 
-# TODO: Clean up pip cache.
-RUN python3 -m venv $HOME/testing
-RUN . $HOME/testing/bin/activate && \
-    pip install --upgrade pip setuptools
+ENV VENV /home/testing/venv
+RUN python3 -m venv $VENV
+RUN . $VENV/bin/activate && \
+    pip install --no-cache-dir --upgrade pip setuptools
 
-ADD --chown=testing:testing requirements-test.txt /home/testing/gmxapi/
+ADD --chown=testing:testing requirements-*.txt /home/testing/gmxapi/
 
-RUN . $HOME/testing/bin/activate && \
-    pip install -r /home/testing/gmxapi/requirements-test.txt
+RUN . $VENV/bin/activate && \
+    pip install --no-cache-dir -r /home/testing/gmxapi/requirements-test.txt
 
-COPY --from=gromacs $CMAKE_ROOT $CMAKE_ROOT
+#
+# Use gromacs installation from gmxapi/gromacs image
+#
+
+FROM gmxapi/gromacs-mpich:$REF as gromacs
+# This intermediate is necessary because the COPY command does not support syntax like the following:
+#COPY --from=gmxapi/gromacs:$REF /usr/local/gromacs /usr/local/gromacs
+
+FROM python-base
+
 COPY --from=gromacs /usr/local/gromacs /usr/local/gromacs
 
 ADD --chown=testing:testing src /home/testing/gmxapi/src
 ADD --chown=testing:testing src/gmxapi /home/testing/gmxapi/src/gmxapi
 
-RUN . $HOME/testing/bin/activate && \
-    . /usr/local/gromacs/bin/GMXRC && \
+# We use "--no-cache-dir" to reduce Docker image size. The other pip flags are
+# to eliminate network access and speed up the build, since we already know we
+# have installed the dependencies.
+RUN . $VENV/bin/activate && \
     (cd $HOME/gmxapi/src && \
-     pip install . \
+     GMXTOOLCHAINDIR=/usr/local/gromacs/share/cmake/gromacs \
+      pip install --no-cache-dir --no-deps --no-index --no-build-isolation . \
     )
 
 ADD --chown=testing:testing src/test /home/testing/gmxapi/test
-ADD --chown=testing:testing scripts /home/testing/scripts
+ADD scripts /docker_entry_points
 ADD --chown=testing:testing test /home/testing/test
+
+ADD --chown=testing:testing sample_restraint /home/testing/sample_restraint
+
+# TODO: (#3027) Get googletest sources locally.
+RUN . $VENV/bin/activate && \
+    . /usr/local/gromacs/bin/GMXRC && \
+    (cd $HOME/sample_restraint && \
+     mkdir build && \
+     cd build && \
+     cmake .. \
+             -DDOWNLOAD_GOOGLETEST=ON \
+             -DGMXAPI_EXTENSION_DOWNLOAD_PYBIND=ON && \
+     make -j4 && \
+     make test && \
+     make install \
+    )
 
 # TODO: this can be in the root user section above once it is stable
 COPY docker/entrypoint.sh /
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["run_pytest"]
+CMD ["run_full"]
 
 
 # MPI tests can be run in this container without requiring MPI on the host.
-#     docker run --rm -t gmxapi/ci:${REF} /home/testing/scripts/run_pytest_mpi.sh
+# (We suggest running your docker engine with multiple CPU cores allocated.)
+#     docker run --rm -t gmxapi/ci:${REF} /home/testing/scripts/run_full_mpi.sh
 # We should also try tests with an MPI-connected set of docker containers.
 
 # To be able to step through with gdb, run with something like the following, replacing

@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -46,8 +46,9 @@
 #include "pairlistparams.h"
 
 #include "gromacs/nbnxm/nbnxm.h"
-#include "gromacs/nbnxm/nbnxm_geometry.h"
 #include "gromacs/utility/gmxassert.h"
+
+#include "nbnxm_geometry.h"
 
 
 PairlistParams::PairlistParams(const Nbnxm::KernelType kernelType,
@@ -59,6 +60,7 @@ PairlistParams::PairlistParams(const Nbnxm::KernelType kernelType,
     rlistInner(rlist),
     haveMultipleDomains(haveMultipleDomains),
     useDynamicPruning(false),
+    mtsFactor(1),
     nstlistPrune(-1),
     numRollingPruningParts(1),
     lifetime(-1)
@@ -71,17 +73,10 @@ PairlistParams::PairlistParams(const Nbnxm::KernelType kernelType,
     {
         switch (Nbnxm::JClusterSizePerKernelType[kernelType])
         {
-            case 2:
-                pairlistType = PairlistType::Simple4x2;
-                break;
-            case 4:
-                pairlistType = PairlistType::Simple4x4;
-                break;
-            case 8:
-                pairlistType = PairlistType::Simple4x8;
-                break;
-            default:
-                GMX_RELEASE_ASSERT(false, "Kernel type does not have a pairlist type");
+            case 2: pairlistType = PairlistType::Simple4x2; break;
+            case 4: pairlistType = PairlistType::Simple4x4; break;
+            case 8: pairlistType = PairlistType::Simple4x8; break;
+            default: GMX_RELEASE_ASSERT(false, "Kernel type does not have a pairlist type");
         }
     }
 }

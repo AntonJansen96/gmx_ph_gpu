@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016 by the GROMACS development team.
+ * Copyright (c) 2017,2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -46,6 +47,7 @@
 #ifndef GMX_UTILITY_ARRAYREF_H
 #define GMX_UTILITY_ARRAYREF_H
 
+#include <cassert>
 #include <cstddef>
 
 #include <array>
@@ -54,10 +56,39 @@
 #include <utility>
 #include <vector>
 
-#include "gromacs/utility/gmxassert.h"
+#if __has_include(<boost/stl_interfaces/iterator_interface.hpp>)
+#    include <boost/stl_interfaces/iterator_interface.hpp>
+#else // fallback for installed headers
+#    include <gromacs/external/boost/stl_interfaces/iterator_interface.hpp>
+#endif
 
 namespace gmx
 {
+
+template<class T>
+struct ArrayRefIter :
+    boost::stl_interfaces::iterator_interface<ArrayRefIter<T>, std::random_access_iterator_tag, T>
+{
+    // This default constructor does not initialize it_
+    constexpr ArrayRefIter() noexcept {}
+    constexpr explicit ArrayRefIter(T* it) noexcept : it_(it) {}
+    // TODO: Use std::is_const_v when CUDA 11 is a requirement.
+    template<class T2 = T, class = std::enable_if_t<std::is_const<T2>::value>>
+    constexpr ArrayRefIter(ArrayRefIter<std::remove_const_t<T2>> it) noexcept : it_(&*it)
+    {
+    }
+    constexpr T*            data() const noexcept { return it_; }
+    constexpr T&            operator*() const noexcept { return *it_; }
+    constexpr ArrayRefIter& operator+=(std::ptrdiff_t i) noexcept
+    {
+        it_ += i;
+        return *this;
+    }
+    constexpr auto operator-(ArrayRefIter other) const noexcept { return it_ - other.it_; }
+
+private:
+    T* it_;
+};
 
 /*! \brief STL-like interface to a C array of T (or part
  * of a std container of T).
@@ -99,184 +130,202 @@ namespace gmx
  * \inpublicapi
  * \ingroup module_utility
  */
-template <typename T>
+template<typename T>
 class ArrayRef
 {
-    public:
-        //! Type of values stored in the reference.
-        typedef T         value_type;
-        //! Type for representing size of the reference.
-        typedef size_t    size_type;
-        //! Type for representing difference between two indices.
-        typedef ptrdiff_t difference_type;
-        //! Const reference to an element.
-        typedef const T  &const_reference;
-        //! Const pointer to an element.
-        typedef const T  *const_pointer;
-        //! Const iterator type to an element.
-        typedef const T  *const_iterator;
-        //! Reference to an element.
-        typedef T        &reference;
-        //! Pointer to an element.
-        typedef T        *pointer;
-        //! Iterator type to an element.
-        typedef T        *iterator;
-        //! Standard reverse iterator.
-        typedef std::reverse_iterator<iterator>       reverse_iterator;
-        //! Standard reverse iterator.
-        typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+public:
+    //! Type of values stored in the reference.
+    typedef T value_type;
+    //! Type for representing size of the reference.
+    typedef size_t size_type;
+    //! Type for representing difference between two indices.
+    typedef ptrdiff_t difference_type;
+    //! Const reference to an element.
+    typedef const T& const_reference;
+    //! Const pointer to an element.
+    typedef const T* const_pointer;
+    //! Const iterator type to an element.
+    typedef ArrayRefIter<const T> const_iterator;
+    //! Reference to an element.
+    typedef T& reference;
+    //! Pointer to an element.
+    typedef T* pointer;
+    //! Iterator type to an element.
+    typedef ArrayRefIter<T> iterator;
+    //! Standard reverse iterator.
+    typedef std::reverse_iterator<iterator> reverse_iterator;
+    //! Standard reverse iterator.
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
-        /*! \brief
-         * Constructs an empty reference.
-         */
-        ArrayRef() : begin_(nullptr), end_(nullptr) {}
-        /*! \brief
-         * Constructs a reference to a container or reference
-         *
-         * \param[in] o container to reference.
-         *
-         * Can be used to create a reference to a whole vector, std::array or
-         * an ArrayRef. The destination has to have a convertible pointer type
-         * (identical besides const or base class).
-         *
-         * Passed container must remain valid and not be reallocated for the
-         * lifetime of this object.
-         *
-         * This constructor is not explicit to allow directly passing
-         * a container to a method that takes ArrayRef.
-         */
-        template<typename U,
-                 typename = typename std::enable_if<
-                         std::is_convertible<typename std::remove_reference<U>::type::pointer,
-                                             pointer>::value>::type>
-        ArrayRef(U &&o) : begin_(o.data()), end_(o.data()+o.size()) {}
-        /*! \brief
-         * Constructs a reference to a particular range.
-         *
-         * \param[in] begin  Pointer to the beginning of a range.
-         * \param[in] end    Pointer to the end of a range.
-         *
-         * Passed pointers must remain valid for the lifetime of this object.
-         */
-        ArrayRef(pointer begin, pointer end)
-            : begin_(begin), end_(end)
+    /*! \brief
+     * Constructs an empty reference.
+     */
+    ArrayRef() : begin_(nullptr), end_(nullptr) {}
+    /*! \brief
+     * Constructs a reference to a container or reference
+     *
+     * \param[in] o container to reference.
+     *
+     * Can be used to create a reference to a whole vector, std::array or
+     * an ArrayRef. The destination has to have a convertible pointer type
+     * (identical besides const or base class).
+     *
+     * Passed container must remain valid and not be reallocated for the
+     * lifetime of this object.
+     *
+     * This constructor is not explicit to allow directly passing
+     * a container to a method that takes ArrayRef.
+     *
+     * \todo Use std::is_convertible_v when CUDA 11 is a requirement.
+     */
+    template<typename U, typename = std::enable_if_t<std::is_convertible<typename std::remove_reference_t<U>::pointer, pointer>::value>>
+    ArrayRef(U&& o) : begin_(o.data()), end_(o.data() + o.size())
+    {
+    }
+    /*! \brief
+     * Constructs a reference to a particular range.
+     *
+     * \param[in] begin  Pointer to the beginning of a range.
+     * \param[in] end    Pointer to the end of a range.
+     *
+     * Passed pointers must remain valid for the lifetime of this object.
+     */
+    ArrayRef(pointer begin, pointer end) : begin_(begin), end_(end)
+    {
+        assert((end >= begin && "Invalid range"));
+    }
+    /*! \brief
+     * Constructs a reference to a particular range.
+     *
+     * \param[in] begin  Iterator to the beginning of a range.
+     * \param[in] end    iterator to the end of a range.
+     *
+     * Passed iterators must remain valid for the lifetime of this object.
+     */
+    ArrayRef(iterator begin, iterator end) : begin_(begin), end_(end)
+    {
+        assert((end >= begin && "Invalid range"));
+    }
+    //! \cond
+    // Doxygen 1.8.5 doesn't parse the declaration correctly...
+    /*! \brief
+     * Constructs a reference to a C array.
+     *
+     * \param[in] array  C array to reference.
+     * \tparam    count  Deduced number of elements in \p array.
+     *
+     * This constructor can only be used with a real array (not with a
+     * pointer).  It constructs a reference to the whole array, without
+     * a need to pass the number of elements explicitly.  The compiler
+     * must be able to deduce the array size.
+     *
+     * Passed array must remain valid for the lifetime of this object.
+     *
+     * This constructor is not explicit to allow directly passing
+     * a C array to a function that takes an ArrayRef parameter.
+     */
+    template<size_t count>
+    ArrayRef(value_type (&array)[count]) : begin_(array), end_(array + count)
+    {
+    }
+    //! \endcond
+
+    //! Returns a reference to part of the memory.
+    ArrayRef subArray(size_type start, size_type count) const
+    {
+        return { begin_ + start, begin_ + start + count };
+    }
+    //! Returns an iterator to the beginning of the reference.
+    iterator begin() const { return iterator(begin_); }
+    //! Returns an iterator to the end of the reference.
+    iterator end() const { return iterator(end_); }
+    //! Returns an iterator to the reverse beginning of the reference.
+    reverse_iterator rbegin() const { return reverse_iterator(end()); }
+    //! Returns an iterator to the reverse end of the reference.
+    reverse_iterator rend() const { return reverse_iterator(begin()); }
+
+    /*! \brief Returns the size of the reference.
+     *
+     * \note Use ssize for any expression involving arithmetic operations
+         (including loop indices).
+     */
+    size_type size() const { return end_ - begin_; }
+    //! Returns the signed size of the reference.
+    difference_type ssize() const { return size(); }
+    //! Identical to size().
+    size_type capacity() const { return end_ - begin_; }
+    //! Whether the reference refers to no memory.
+    bool empty() const { return begin_ == end_; }
+
+    //! Access an element.
+    reference operator[](size_type n) const { return begin_[n]; }
+    //! Access an element (throws on out-of-range error).
+    reference at(size_type n) const
+    {
+        if (n >= size())
         {
-            GMX_ASSERT(end >= begin, "Invalid range");
+            throw std::out_of_range("Vector index out of range");
         }
-        //! \cond
-        // Doxygen 1.8.5 doesn't parse the declaration correctly...
-        /*! \brief
-         * Constructs a reference to a C array.
-         *
-         * \param[in] array  C array to reference.
-         * \tparam    count  Deduced number of elements in \p array.
-         *
-         * This constructor can only be used with a real array (not with a
-         * pointer).  It constructs a reference to the whole array, without
-         * a need to pass the number of elements explicitly.  The compiler
-         * must be able to deduce the array size.
-         *
-         * Passed array must remain valid for the lifetime of this object.
-         *
-         * This constructor is not explicit to allow directly passing
-         * a C array to a function that takes an ArrayRef parameter.
-         */
-        template <size_t count>
-        ArrayRef(value_type (&array)[count])
-            : begin_(array), end_(array + count)
-        {
-        }
-        //! \endcond
+        return begin_[n];
+    }
+    //! Returns the first element.
+    reference front() const { return *(begin_); }
+    //! Returns the first element.
+    reference back() const { return *(end_ - 1); }
 
-        //! Returns a reference to part of the memory.
-        ArrayRef subArray(size_type start, size_type count) const
-        {
-            return {begin_+start, begin_+start+count};
-        }
-        //! Returns an iterator to the beginning of the reference.
-        iterator begin() const { return begin_; }
-        //! Returns an iterator to the end of the reference.
-        iterator end() const { return end_; }
-        //! Returns an iterator to the reverse beginning of the reference.
-        reverse_iterator rbegin() const { return reverse_iterator(end()); }
-        //! Returns an iterator to the reverse end of the reference.
-        reverse_iterator rend() const { return reverse_iterator(begin()); }
+    //! Returns a raw pointer to the contents of the array.
+    pointer data() const { return begin_.data(); }
 
-        /*! \brief Returns the size of the reference.
-         *
-         * \note Use ssize for any expression involving arithmetic operations
-             (including loop indices).
-         */
-        size_type size() const { return end_ - begin_; }
-        //! Returns the signed size of the reference.
-        index ssize() const { return size(); }
-        //! Identical to size().
-        size_type capacity() const { return end_ - begin_; }
-        //! Whether the reference refers to no memory.
-        bool empty() const { return begin_ == end_; }
+    /*! \brief
+     * Swaps referenced memory with the other object.
+     *
+     * The actual memory areas are not modified, only the references are
+     * swapped.
+     */
+    void swap(ArrayRef<T>& other)
+    {
+        std::swap(begin_, other.begin_);
+        std::swap(end_, other.end_);
+    }
 
-        //! Access an element.
-        reference operator[](size_type n) const { return begin_[n]; }
-        //! Access an element (throws on out-of-range error).
-        reference at(size_type n) const
-        {
-            if (n >= size())
-            {
-                throw std::out_of_range("Vector index out of range");
-            }
-            return begin_[n];
-        }
-        //! Returns the first element.
-        reference front() const { return *begin_; }
-        //! Returns the first element.
-        reference back() const { return *(end_ - 1); }
-
-        //! Returns a raw pointer to the contents of the array.
-        pointer data() const { return begin_; }
-
-        /*! \brief
-         * Swaps referenced memory with the other object.
-         *
-         * The actual memory areas are not modified, only the references are
-         * swapped.
-         */
-        void swap(ArrayRef<T> &other)
-        {
-            std::swap(begin_, other.begin_);
-            std::swap(end_, other.end_);
-        }
-
-    private:
-        pointer           begin_;
-        pointer           end_;
+private:
+    iterator begin_;
+    iterator end_;
 };
 
-//! \copydoc ArrayRef::fromArray()
+/*! \brief
+ * Constructs a reference to a C array.
+ *
+ * \param[in] begin  Pointer to the beginning of array.
+ * \param[in] size   Number of elements in array.
+ *
+ * Passed array must remain valid for the lifetime of this object.
+ */
 //! \related ArrayRef
-template <typename T>
-ArrayRef<T> arrayRefFromArray(T *begin, size_t size)
+template<typename T>
+ArrayRef<T> arrayRefFromArray(T* begin, size_t size)
 {
-    return ArrayRef<T>(begin, begin+size);
+    return ArrayRef<T>(begin, begin + size);
 }
 
-//! \copydoc ArrayRef::fromArray()
+//! \copydoc arrayRefFromArray
 //! \related ArrayRef
-template <typename T>
-ArrayRef<const T> constArrayRefFromArray(const T *begin, size_t size)
+template<typename T>
+ArrayRef<const T> constArrayRefFromArray(const T* begin, size_t size)
 {
-    return ArrayRef<const T>(begin, begin+size);
+    return ArrayRef<const T>(begin, begin + size);
 }
 
 /*! \brief
  * Create ArrayRef from container with type deduction
  *
  * \see ArrayRef
+ *
+ * \todo Use std::is_const_v when CUDA 11 is a requirement.
  */
-template <typename T>
-ArrayRef<typename std::conditional<std::is_const<T>::value,
-                                   const typename T::value_type,
-                                   typename T::value_type>::type>
-makeArrayRef(T &c)
+template<typename T>
+ArrayRef<std::conditional_t<std::is_const<T>::value, const typename T::value_type, typename T::value_type>>
+makeArrayRef(T& c)
 {
     return c;
 }
@@ -286,8 +335,8 @@ makeArrayRef(T &c)
  *
  * \see ArrayRef
  */
-template <typename T>
-ArrayRef<const typename T::value_type> makeConstArrayRef(const T &c)
+template<typename T>
+ArrayRef<const typename T::value_type> makeConstArrayRef(const T& c)
 {
     return c;
 }
@@ -299,8 +348,8 @@ ArrayRef<const typename T::value_type> makeConstArrayRef(const T &c)
  *
  * \ingroup module_utility
  */
-template <typename T>
-void swap(ArrayRef<T> &a, ArrayRef<T> &b)
+template<typename T>
+void swap(ArrayRef<T>& a, ArrayRef<T>& b)
 {
     a.swap(b);
 }
@@ -315,8 +364,8 @@ void swap(ArrayRef<T> &a, ArrayRef<T> &b)
  *
  * \ingroup module_utility
  */
-template <typename T>
-std::vector<T> copyOf(const ArrayRef<const T> &arrayRef)
+template<typename T>
+std::vector<T> copyOf(const ArrayRef<const T>& arrayRef)
 {
     return std::vector<T>(arrayRef.begin(), arrayRef.end());
 }

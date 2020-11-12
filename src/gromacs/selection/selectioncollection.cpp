@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2010,2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
+ * Copyright (c) 2010-2018, The GROMACS development team.
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -83,15 +84,17 @@ namespace gmx
  * SelectionCollection::Impl
  */
 
-SelectionCollection::Impl::Impl()
-    : debugLevel_(0), bExternalGroupsSet_(false), grps_(nullptr)
+SelectionCollection::Impl::Impl() :
+    debugLevel_(DebugLevel::None),
+    bExternalGroupsSet_(false),
+    grps_(nullptr)
 {
-    sc_.nvars     = 0;
-    sc_.varstrs   = nullptr;
-    sc_.top       = nullptr;
+    sc_.nvars   = 0;
+    sc_.varstrs = nullptr;
+    sc_.top     = nullptr;
     gmx_ana_index_clear(&sc_.gall);
-    sc_.mempool   = nullptr;
-    sc_.symtab    = std::make_unique<SelectionParserSymbolTable>();
+    sc_.mempool = nullptr;
+    sc_.symtab  = std::make_unique<SelectionParserSymbolTable>();
     gmx_ana_index_clear(&requiredAtoms_);
     gmx_ana_selmethod_register_defaults(sc_.symtab.get());
 }
@@ -118,8 +121,7 @@ SelectionCollection::Impl::~Impl()
 }
 
 
-void
-SelectionCollection::Impl::clearSymbolTable()
+void SelectionCollection::Impl::clearSymbolTable()
 {
     sc_.symtab.reset();
 }
@@ -138,8 +140,7 @@ namespace
  *
  * Handles line continuation, reading also the continuing line(s) in one call.
  */
-bool promptLine(TextInputStream *inputStream, TextWriter *statusWriter,
-                std::string *line)
+bool promptLine(TextInputStream* inputStream, TextWriter* statusWriter, std::string* line)
 {
     if (statusWriter != nullptr)
     {
@@ -184,10 +185,9 @@ bool promptLine(TextInputStream *inputStream, TextWriter *statusWriter,
  * \p parserState until there is no more input, or until enough input is given
  * (only in interactive mode).
  */
-int runParserLoop(yyscan_t scanner, _gmx_sel_yypstate *parserState,
-                  bool bInteractive)
+int runParserLoop(yyscan_t scanner, _gmx_sel_yypstate* parserState, bool bInteractive)
 {
-    int status    = YYPUSH_MORE;
+    int status = YYPUSH_MORE;
     do
     {
         YYSTYPE value;
@@ -198,8 +198,7 @@ int runParserLoop(yyscan_t scanner, _gmx_sel_yypstate *parserState,
             break;
         }
         status = _gmx_sel_yypush_parse(parserState, token, &value, &location, scanner);
-    }
-    while (status == YYPUSH_MORE);
+    } while (status == YYPUSH_MORE);
     _gmx_sel_lexer_rethrow_exception_if_occurred(scanner);
     return status;
 }
@@ -219,9 +218,13 @@ int runParserLoop(yyscan_t scanner, _gmx_sel_yypstate *parserState,
  *
  * Prints the available index groups and currently provided selections.
  */
-void printCurrentStatus(TextWriter *writer, gmx_ana_selcollection_t *sc,
-                        gmx_ana_indexgrps_t *grps, size_t firstSelection,
-                        int maxCount, const std::string &context, bool bFirst)
+void printCurrentStatus(TextWriter*              writer,
+                        gmx_ana_selcollection_t* sc,
+                        gmx_ana_indexgrps_t*     grps,
+                        size_t                   firstSelection,
+                        int                      maxCount,
+                        const std::string&       context,
+                        bool                     bFirst)
 {
     if (grps != nullptr)
     {
@@ -241,11 +244,10 @@ void printCurrentStatus(TextWriter *writer, gmx_ana_selcollection_t *sc,
     {
         writer->writeString(formatString("%d selections", maxCount));
     }
-    writer->writeString(formatString("%s%s:\n",
-                                     context.empty() ? "" : " ", context.c_str()));
-    writer->writeString(formatString(
-                                "(one per line, <enter> for status/groups, 'help' for help%s)\n",
-                                maxCount < 0 ? ", Ctrl-D to end" : ""));
+    writer->writeString(formatString("%s%s:\n", context.empty() ? "" : " ", context.c_str()));
+    writer->writeString(
+            formatString("(one per line, <enter> for status/groups, 'help' for help%s)\n",
+                         maxCount < 0 ? ", Ctrl-D to end" : ""));
     if (!bFirst && (sc->nvars > 0 || sc->sel.size() > firstSelection))
     {
         writer->writeLine("Currently provided selections:");
@@ -255,18 +257,14 @@ void printCurrentStatus(TextWriter *writer, gmx_ana_selcollection_t *sc,
         }
         for (size_t i = firstSelection; i < sc->sel.size(); ++i)
         {
-            writer->writeString(formatString(
-                                        " %2d. %s\n",
-                                        static_cast<int>(i - firstSelection + 1),
-                                        sc->sel[i]->selectionText()));
+            writer->writeString(formatString(" %2d. %s\n", static_cast<int>(i - firstSelection + 1),
+                                             sc->sel[i]->selectionText()));
         }
         if (maxCount > 0)
         {
-            const int remaining
-                = maxCount - static_cast<int>(sc->sel.size() - firstSelection);
-            writer->writeString(formatString(
-                                        "(%d more selection%s required)\n",
-                                        remaining, remaining > 1 ? "s" : ""));
+            const int remaining = maxCount - static_cast<int>(sc->sel.size() - firstSelection);
+            writer->writeString(formatString("(%d more selection%s required)\n", remaining,
+                                             remaining > 1 ? "s" : ""));
         }
     }
 }
@@ -281,8 +279,7 @@ void printCurrentStatus(TextWriter *writer, gmx_ana_selcollection_t *sc,
  * Initializes the selection help if not yet initialized, and finds the help
  * topic based on words on the input line.
  */
-void printHelp(TextWriter *writer, gmx_ana_selcollection_t *sc,
-               const std::string &line)
+void printHelp(TextWriter* writer, gmx_ana_selcollection_t* sc, const std::string& line)
 {
     if (sc->rootHelp.get() == nullptr)
     {
@@ -300,7 +297,7 @@ void printHelp(TextWriter *writer, gmx_ana_selcollection_t *sc,
             manager.enterTopic(*value);
         }
     }
-    catch (const InvalidInputError &ex)
+    catch (const InvalidInputError& ex)
     {
         writer->writeLine(ex.what());
         return;
@@ -327,20 +324,22 @@ void printHelp(TextWriter *writer, gmx_ana_selcollection_t *sc,
  * Used internally to implement parseInteractive(), parseFromFile() and
  * parseFromString().
  */
-SelectionList runParser(yyscan_t scanner, TextInputStream *inputStream,
-                        bool bInteractive, int maxnr, const std::string &context)
+SelectionList runParser(yyscan_t           scanner,
+                        TextInputStream*   inputStream,
+                        bool               bInteractive,
+                        int                maxnr,
+                        const std::string& context)
 {
     std::shared_ptr<void>    scannerGuard(scanner, &_gmx_sel_free_lexer);
-    gmx_ana_selcollection_t *sc   = _gmx_sel_lexer_selcollection(scanner);
-    gmx_ana_indexgrps_t     *grps = _gmx_sel_lexer_indexgrps(scanner);
+    gmx_ana_selcollection_t* sc   = _gmx_sel_lexer_selcollection(scanner);
+    gmx_ana_indexgrps_t*     grps = _gmx_sel_lexer_indexgrps(scanner);
 
-    size_t                   oldCount = sc->sel.size();
+    size_t oldCount = sc->sel.size();
     {
-        std::shared_ptr<_gmx_sel_yypstate> parserState(
-                _gmx_sel_yypstate_new(), &_gmx_sel_yypstate_delete);
+        std::shared_ptr<_gmx_sel_yypstate> parserState(_gmx_sel_yypstate_new(), &_gmx_sel_yypstate_delete);
         if (bInteractive)
         {
-            TextWriter *statusWriter = _gmx_sel_lexer_get_status_writer(scanner);
+            TextWriter* statusWriter = _gmx_sel_lexer_get_status_writer(scanner);
             if (statusWriter != nullptr)
             {
                 printCurrentStatus(statusWriter, sc, grps, oldCount, maxnr, context, true);
@@ -357,8 +356,7 @@ SelectionList runParser(yyscan_t scanner, TextInputStream *inputStream,
                         printCurrentStatus(statusWriter, sc, grps, oldCount, maxnr, context, false);
                         continue;
                     }
-                    if (startsWith(line, "help")
-                        && (line[4] == 0 || (std::isspace(line[4]) != 0)))
+                    if (startsWith(line, "help") && (line[4] == 0 || (std::isspace(line[4]) != 0)))
                     {
                         printHelp(statusWriter, sc, line);
                         continue;
@@ -376,29 +374,24 @@ SelectionList runParser(yyscan_t scanner, TextInputStream *inputStream,
             }
             {
                 YYLTYPE location;
-                status = _gmx_sel_yypush_parse(parserState.get(), 0, nullptr,
-                                               &location, scanner);
+                status = _gmx_sel_yypush_parse(parserState.get(), 0, nullptr, &location, scanner);
             }
             // TODO: Remove added selections from the collection if parsing failed?
             _gmx_sel_lexer_rethrow_exception_if_occurred(scanner);
-early_termination:
-            GMX_RELEASE_ASSERT(status == 0,
-                               "Parser errors should have resulted in an exception");
+        early_termination:
+            GMX_RELEASE_ASSERT(status == 0, "Parser errors should have resulted in an exception");
         }
         else
         {
             int status = runParserLoop(scanner, parserState.get(), false);
-            GMX_RELEASE_ASSERT(status == 0,
-                               "Parser errors should have resulted in an exception");
+            GMX_RELEASE_ASSERT(status == 0, "Parser errors should have resulted in an exception");
         }
     }
     scannerGuard.reset();
     int nr = sc->sel.size() - oldCount;
     if (maxnr > 0 && nr != maxnr)
     {
-        std::string message
-            = formatString("Too few selections provided; got %d, expected %d",
-                           nr, maxnr);
+        std::string message = formatString("Too few selections provided; got %d, expected %d", nr, maxnr);
         GMX_THROW(InvalidInputError(message));
     }
 
@@ -426,9 +419,7 @@ early_termination:
  * the topology/maximum number of atoms set for the selection collection.
  * Any issues are reported to \p errors.
  */
-void checkExternalGroups(const SelectionTreeElementPointer &root,
-                         int                                natoms,
-                         ExceptionInitializer              *errors)
+void checkExternalGroups(const SelectionTreeElementPointer& root, int natoms, ExceptionInitializer* errors)
 {
     if (root->type == SEL_CONST && root->v.type == GROUP_VALUE)
     {
@@ -436,7 +427,7 @@ void checkExternalGroups(const SelectionTreeElementPointer &root,
         {
             root->checkIndexGroup(natoms);
         }
-        catch (const UserInputError &)
+        catch (const UserInputError&)
         {
             errors->addCurrentExceptionAsNested();
         }
@@ -451,29 +442,29 @@ void checkExternalGroups(const SelectionTreeElementPointer &root,
 }
 
 //! Checks whether the given topology properties are available.
-void checkTopologyProperties(const gmx_mtop_t                  *top,
-                             const SelectionTopologyProperties &props)
+void checkTopologyProperties(const gmx_mtop_t* top, const SelectionTopologyProperties& props)
 {
     if (top == nullptr)
     {
         if (props.hasAny())
         {
-            GMX_THROW(InconsistentInputError("Selection requires topology information, but none provided"));
+            GMX_THROW(InconsistentInputError(
+                    "Selection requires topology information, but none provided"));
         }
         return;
     }
     if (props.needsMasses && !gmx_mtop_has_masses(top))
     {
-        GMX_THROW(InconsistentInputError("Selection requires mass information, but it is not available in the topology"));
+        GMX_THROW(InconsistentInputError(
+                "Selection requires mass information, but it is not available in the topology"));
     }
 }
 
-}   // namespace
+} // namespace
 
 
-void SelectionCollection::Impl::resolveExternalGroups(
-        const SelectionTreeElementPointer &root,
-        ExceptionInitializer              *errors)
+void SelectionCollection::Impl::resolveExternalGroups(const SelectionTreeElementPointer& root,
+                                                      ExceptionInitializer*              errors)
 {
 
     if (root->type == SEL_GROUPREF)
@@ -482,7 +473,7 @@ void SelectionCollection::Impl::resolveExternalGroups(
         {
             root->resolveIndexGroupReference(grps_, sc_.gall.isize);
         }
-        catch (const UserInputError &)
+        catch (const UserInputError&)
         {
             errors->addCurrentExceptionAsNested();
         }
@@ -493,14 +484,14 @@ void SelectionCollection::Impl::resolveExternalGroups(
     {
         resolveExternalGroups(child, errors);
         root->flags |= (child->flags & SEL_UNSORTED);
-        child        = child->next;
+        child = child->next;
     }
 }
 
 
 bool SelectionCollection::Impl::areForcesRequested() const
 {
-    for (const auto &sel : sc_.sel)
+    for (const auto& sel : sc_.sel)
     {
         if (sel->hasFlag(gmx::efSelection_EvaluateForces))
         {
@@ -512,16 +503,14 @@ bool SelectionCollection::Impl::areForcesRequested() const
 
 
 SelectionTopologyProperties
-SelectionCollection::Impl::requiredTopologyPropertiesForPositionType(
-        const std::string &post, bool forces) const
+SelectionCollection::Impl::requiredTopologyPropertiesForPositionType(const std::string& post, bool forces)
 {
     SelectionTopologyProperties props;
     if (!post.empty())
     {
         switch (PositionCalculationCollection::requiredTopologyInfoForType(post.c_str(), forces))
         {
-            case PositionCalculationCollection::RequiredTopologyInfo::None:
-                break;
+            case PositionCalculationCollection::RequiredTopologyInfo::None: break;
             case PositionCalculationCollection::RequiredTopologyInfo::Topology:
                 props.merge(SelectionTopologyProperties::topology());
                 break;
@@ -538,81 +527,74 @@ SelectionCollection::Impl::requiredTopologyPropertiesForPositionType(
  * SelectionCollection
  */
 
-SelectionCollection::SelectionCollection()
-    : impl_(new Impl)
+SelectionCollection::SelectionCollection() : impl_(new Impl) {}
+
+
+SelectionCollection::~SelectionCollection() {}
+
+
+void SelectionCollection::initOptions(IOptionsContainer* options, SelectionTypeOption selectionTypeOption)
 {
-}
+    static const EnumerationArray<Impl::DebugLevel, const char*> s_debugLevelNames = {
+        { "no", "basic", "compile", "eval", "full" }
+    };
 
-
-SelectionCollection::~SelectionCollection()
-{
-}
-
-
-void
-SelectionCollection::initOptions(IOptionsContainer   *options,
-                                 SelectionTypeOption  selectionTypeOption)
-{
-    const char * const debug_levels[]
-        = { "no", "basic", "compile", "eval", "full" };
-
-    const char *const *postypes = PositionCalculationCollection::typeEnumValues;
+    const char* const* postypes = PositionCalculationCollection::typeEnumValues;
     options->addOption(StringOption("selrpos")
-                           .enumValueFromNullTerminatedArray(postypes)
-                           .store(&impl_->rpost_).defaultValue(postypes[0])
-                           .description("Selection reference positions"));
+                               .enumValueFromNullTerminatedArray(postypes)
+                               .store(&impl_->rpost_)
+                               .defaultValue(postypes[0])
+                               .description("Selection reference positions"));
     if (selectionTypeOption == IncludeSelectionTypeOption)
     {
         options->addOption(StringOption("seltype")
-                               .enumValueFromNullTerminatedArray(postypes)
-                               .store(&impl_->spost_).defaultValue(postypes[0])
-                               .description("Default selection output positions"));
+                                   .enumValueFromNullTerminatedArray(postypes)
+                                   .store(&impl_->spost_)
+                                   .defaultValue(postypes[0])
+                                   .description("Default selection output positions"));
     }
     else
     {
         impl_->spost_ = postypes[0];
     }
-    GMX_RELEASE_ASSERT(impl_->debugLevel_ >= 0 && impl_->debugLevel_ <= 4,
-                       "Debug level out of range");
-    options->addOption(EnumIntOption("seldebug").hidden(impl_->debugLevel_ == 0)
-                           .enumValue(debug_levels).store(&impl_->debugLevel_)
-                           .description("Print out selection trees for debugging"));
+    GMX_RELEASE_ASSERT(impl_->debugLevel_ != Impl::DebugLevel::Count, "Debug level out of range");
+    options->addOption(EnumOption<Impl::DebugLevel>("seldebug")
+                               .hidden(impl_->debugLevel_ == Impl::DebugLevel::None)
+                               .enumValue(s_debugLevelNames)
+                               .store(&impl_->debugLevel_)
+                               .description("Print out selection trees for debugging"));
 }
 
 
-void
-SelectionCollection::setReferencePosType(const char *type)
+void SelectionCollection::setReferencePosType(const char* type)
 {
     GMX_RELEASE_ASSERT(type != nullptr, "Cannot assign NULL position type");
     // Check that the type is valid, throw if it is not.
-    e_poscalc_t  dummytype;
-    int          dummyflags;
+    e_poscalc_t dummytype;
+    int         dummyflags;
     PositionCalculationCollection::typeFromEnum(type, &dummytype, &dummyflags);
     impl_->rpost_ = type;
 }
 
 
-void
-SelectionCollection::setOutputPosType(const char *type)
+void SelectionCollection::setOutputPosType(const char* type)
 {
     GMX_RELEASE_ASSERT(type != nullptr, "Cannot assign NULL position type");
     // Check that the type is valid, throw if it is not.
-    e_poscalc_t  dummytype;
-    int          dummyflags;
+    e_poscalc_t dummytype;
+    int         dummyflags;
     PositionCalculationCollection::typeFromEnum(type, &dummytype, &dummyflags);
     impl_->spost_ = type;
 }
 
 
-void
-SelectionCollection::setDebugLevel(int debugLevel)
+void SelectionCollection::setDebugLevel(int debugLevel)
 {
-    impl_->debugLevel_ = debugLevel;
+    impl_->debugLevel_ = Impl::DebugLevel(debugLevel);
 }
 
 
-void
-SelectionCollection::setTopology(gmx_mtop_t *top, int natoms)
+void SelectionCollection::setTopology(gmx_mtop_t* top, int natoms)
 {
     GMX_RELEASE_ASSERT(natoms > 0 || top != nullptr,
                        "The number of atoms must be given if there is no topology");
@@ -636,7 +618,7 @@ SelectionCollection::setTopology(gmx_mtop_t *top, int natoms)
             GMX_THROW(InconsistentInputError(errors));
         }
     }
-    gmx_ana_selcollection_t *sc = &impl_->sc_;
+    gmx_ana_selcollection_t* sc = &impl_->sc_;
     // Do this first, as it allocates memory, while the others don't throw.
     gmx_ana_index_init_simple(&sc->gall, natoms);
     sc->top = top;
@@ -644,8 +626,7 @@ SelectionCollection::setTopology(gmx_mtop_t *top, int natoms)
 }
 
 
-void
-SelectionCollection::setIndexGroups(gmx_ana_indexgrps_t *grps)
+void SelectionCollection::setIndexGroups(gmx_ana_indexgrps_t* grps)
 {
     GMX_RELEASE_ASSERT(grps == nullptr || !impl_->bExternalGroupsSet_,
                        "Can only set external groups once or clear them afterwards");
@@ -670,16 +651,14 @@ SelectionCollection::setIndexGroups(gmx_ana_indexgrps_t *grps)
     }
 }
 
-SelectionTopologyProperties
-SelectionCollection::requiredTopologyProperties() const
+SelectionTopologyProperties SelectionCollection::requiredTopologyProperties() const
 {
     SelectionTopologyProperties props;
 
     // These should not throw, because has been checked earlier.
     props.merge(impl_->requiredTopologyPropertiesForPositionType(impl_->rpost_, false));
     const bool forcesRequested = impl_->areForcesRequested();
-    props.merge(impl_->requiredTopologyPropertiesForPositionType(impl_->spost_,
-                                                                 forcesRequested));
+    props.merge(impl_->requiredTopologyPropertiesForPositionType(impl_->spost_, forcesRequested));
 
     SelectionTreeElementPointer sel = impl_->sc_.root;
     while (sel && !props.hasAll())
@@ -691,8 +670,7 @@ SelectionCollection::requiredTopologyProperties() const
 }
 
 
-bool
-SelectionCollection::requiresIndexGroups() const
+bool SelectionCollection::requiresIndexGroups() const
 {
     SelectionTreeElementPointer sel = impl_->sc_.root;
     while (sel)
@@ -707,20 +685,18 @@ SelectionCollection::requiresIndexGroups() const
 }
 
 
-SelectionList
-SelectionCollection::parseFromStdin(int count, bool bInteractive,
-                                    const std::string &context)
+SelectionList SelectionCollection::parseFromStdin(int count, bool bInteractive, const std::string& context)
 {
-    return parseInteractive(count, &StandardInputStream::instance(),
-                            bInteractive ? &TextOutputFile::standardError() : nullptr,
-                            context);
+    StandardInputStream inputStream;
+    return parseInteractive(count, &inputStream,
+                            bInteractive ? &TextOutputFile::standardError() : nullptr, context);
 }
 
 namespace
 {
 
 //! Helper function to initialize status writer for interactive selection parsing.
-std::unique_ptr<TextWriter> initStatusWriter(TextOutputStream *statusStream)
+std::unique_ptr<TextWriter> initStatusWriter(TextOutputStream* statusStream)
 {
     std::unique_ptr<TextWriter> statusWriter;
     if (statusStream != nullptr)
@@ -731,26 +707,23 @@ std::unique_ptr<TextWriter> initStatusWriter(TextOutputStream *statusStream)
     return statusWriter;
 }
 
-}   // namespace
+} // namespace
 
-SelectionList
-SelectionCollection::parseInteractive(int                count,
-                                      TextInputStream   *inputStream,
-                                      TextOutputStream  *statusStream,
-                                      const std::string &context)
+SelectionList SelectionCollection::parseInteractive(int                count,
+                                                    TextInputStream*   inputStream,
+                                                    TextOutputStream*  statusStream,
+                                                    const std::string& context)
 {
     yyscan_t scanner;
 
-    const std::unique_ptr<TextWriter> statusWriter(
-            initStatusWriter(statusStream));
-    _gmx_sel_init_lexer(&scanner, &impl_->sc_, statusWriter.get(),
-                        count, impl_->bExternalGroupsSet_, impl_->grps_);
+    const std::unique_ptr<TextWriter> statusWriter(initStatusWriter(statusStream));
+    _gmx_sel_init_lexer(&scanner, &impl_->sc_, statusWriter.get(), count,
+                        impl_->bExternalGroupsSet_, impl_->grps_);
     return runParser(scanner, inputStream, true, count, context);
 }
 
 
-SelectionList
-SelectionCollection::parseFromFile(const std::string &filename)
+SelectionList SelectionCollection::parseFromFile(const std::string& filename)
 {
 
     try
@@ -758,52 +731,43 @@ SelectionCollection::parseFromFile(const std::string &filename)
         yyscan_t      scanner;
         TextInputFile file(filename);
         // TODO: Exception-safe way of using the lexer.
-        _gmx_sel_init_lexer(&scanner, &impl_->sc_, nullptr, -1,
-                            impl_->bExternalGroupsSet_,
-                            impl_->grps_);
+        _gmx_sel_init_lexer(&scanner, &impl_->sc_, nullptr, -1, impl_->bExternalGroupsSet_, impl_->grps_);
         _gmx_sel_set_lex_input_file(scanner, file.handle());
         return runParser(scanner, nullptr, false, -1, std::string());
     }
-    catch (GromacsException &ex)
+    catch (GromacsException& ex)
     {
-        ex.prependContext(formatString(
-                                  "Error in parsing selections from file '%s'",
-                                  filename.c_str()));
+        ex.prependContext(formatString("Error in parsing selections from file '%s'", filename.c_str()));
         throw;
     }
 }
 
 
-SelectionList
-SelectionCollection::parseFromString(const std::string &str)
+SelectionList SelectionCollection::parseFromString(const std::string& str)
 {
     yyscan_t scanner;
 
-    _gmx_sel_init_lexer(&scanner, &impl_->sc_, nullptr, -1,
-                        impl_->bExternalGroupsSet_,
-                        impl_->grps_);
+    _gmx_sel_init_lexer(&scanner, &impl_->sc_, nullptr, -1, impl_->bExternalGroupsSet_, impl_->grps_);
     _gmx_sel_set_lex_input_str(scanner, str.c_str());
     return runParser(scanner, nullptr, false, -1, std::string());
 }
 
 
-void
-SelectionCollection::compile()
+void SelectionCollection::compile()
 {
     checkTopologyProperties(impl_->sc_.top, requiredTopologyProperties());
     if (!impl_->bExternalGroupsSet_)
     {
         setIndexGroups(nullptr);
     }
-    if (impl_->debugLevel_ >= 1)
+    if (impl_->debugLevel_ != Impl::DebugLevel::None)
     {
         printTree(stderr, false);
     }
 
-    SelectionCompiler compiler;
-    compiler.compile(this);
+    compileSelection(this);
 
-    if (impl_->debugLevel_ >= 1)
+    if (impl_->debugLevel_ != Impl::DebugLevel::None)
     {
         std::fprintf(stderr, "\n");
         printTree(stderr, false);
@@ -812,7 +776,7 @@ SelectionCollection::compile()
         std::fprintf(stderr, "\n");
     }
     impl_->sc_.pcc.initEvaluation();
-    if (impl_->debugLevel_ >= 1)
+    if (impl_->debugLevel_ != Impl::DebugLevel::None)
     {
         impl_->sc_.pcc.printTree(stderr);
         std::fprintf(stderr, "\n");
@@ -823,15 +787,15 @@ SelectionCollection::compile()
     SelectionDataList::const_iterator iter;
     for (iter = impl_->sc_.sel.begin(); iter != impl_->sc_.sel.end(); ++iter)
     {
-        const internal::SelectionData &sel = **iter;
+        const internal::SelectionData& sel = **iter;
         if (sel.hasFlag(efSelection_OnlyAtoms))
         {
             if (!sel.hasOnlyAtoms())
             {
                 std::string message = formatString(
-                            "Selection '%s' does not evaluate to individual atoms. "
-                            "This is not allowed in this context.",
-                            sel.selectionText());
+                        "Selection '%s' does not evaluate to individual atoms. "
+                        "This is not allowed in this context.",
+                        sel.selectionText());
                 GMX_THROW(InvalidInputError(message));
             }
             if (sel.hasFlag(efSelection_OnlySorted))
@@ -839,10 +803,10 @@ SelectionCollection::compile()
                 if (!sel.hasSortedAtomIndices())
                 {
                     const std::string message = formatString(
-                                "Selection '%s' does not evaluate to atoms in an "
-                                "ascending (sorted) order. "
-                                "This is not allowed in this context.",
-                                sel.selectionText());
+                            "Selection '%s' does not evaluate to atoms in an "
+                            "ascending (sorted) order. "
+                            "This is not allowed in this context.",
+                            sel.selectionText());
                     GMX_THROW(InvalidInputError(message));
                 }
             }
@@ -851,9 +815,8 @@ SelectionCollection::compile()
         {
             if (sel.posCount() == 0)
             {
-                std::string message = formatString(
-                            "Selection '%s' never matches any atoms.",
-                            sel.selectionText());
+                std::string message =
+                        formatString("Selection '%s' never matches any atoms.", sel.selectionText());
                 GMX_THROW(InvalidInputError(message));
             }
         }
@@ -863,8 +826,7 @@ SelectionCollection::compile()
 }
 
 
-void
-SelectionCollection::evaluate(t_trxframe *fr, t_pbc *pbc)
+void SelectionCollection::evaluate(t_trxframe* fr, t_pbc* pbc)
 {
     checkTopologyProperties(impl_->sc_.top, requiredTopologyProperties());
     if (fr->bIndex)
@@ -877,8 +839,8 @@ SelectionCollection::evaluate(t_trxframe *fr, t_pbc *pbc)
         if (!gmx_ana_index_contains(&g, &impl_->requiredAtoms_))
         {
             const std::string message = formatString(
-                        "Trajectory does not contain all atoms required for "
-                        "evaluating the provided selections.");
+                    "Trajectory does not contain all atoms required for "
+                    "evaluating the provided selections.");
             GMX_THROW(InconsistentInputError(message));
         }
     }
@@ -888,9 +850,10 @@ SelectionCollection::evaluate(t_trxframe *fr, t_pbc *pbc)
         if (fr->natoms <= maxAtomIndex)
         {
             const std::string message = formatString(
-                        "Trajectory has less atoms (%d) than what is required for "
-                        "evaluating the provided selections (atoms up to index %d "
-                        "are required).", fr->natoms, maxAtomIndex + 1);
+                    "Trajectory has less atoms (%d) than what is required for "
+                    "evaluating the provided selections (atoms up to index %d "
+                    "are required).",
+                    fr->natoms, maxAtomIndex + 1);
             GMX_THROW(InconsistentInputError(message));
         }
     }
@@ -899,7 +862,7 @@ SelectionCollection::evaluate(t_trxframe *fr, t_pbc *pbc)
     SelectionEvaluator evaluator;
     evaluator.evaluate(this, fr, pbc);
 
-    if (impl_->debugLevel_ >= 3)
+    if (impl_->debugLevel_ == Impl::DebugLevel::Evaluated || impl_->debugLevel_ == Impl::DebugLevel::Full)
     {
         std::fprintf(stderr, "\n");
         printTree(stderr, true);
@@ -907,16 +870,14 @@ SelectionCollection::evaluate(t_trxframe *fr, t_pbc *pbc)
 }
 
 
-void
-SelectionCollection::evaluateFinal(int nframes)
+void SelectionCollection::evaluateFinal(int nframes)
 {
     SelectionEvaluator evaluator;
     evaluator.evaluateFinal(this, nframes);
 }
 
 
-void
-SelectionCollection::printTree(FILE *fp, bool bValues) const
+void SelectionCollection::printTree(FILE* fp, bool bValues) const
 {
     SelectionTreeElementPointer sel = impl_->sc_.root;
     while (sel)
@@ -927,10 +888,9 @@ SelectionCollection::printTree(FILE *fp, bool bValues) const
 }
 
 
-void
-SelectionCollection::printXvgrInfo(FILE *out) const
+void SelectionCollection::printXvgrInfo(FILE* out) const
 {
-    const gmx_ana_selcollection_t &sc = impl_->sc_;
+    const gmx_ana_selcollection_t& sc = impl_->sc_;
     std::fprintf(out, "# Selections:\n");
     for (int i = 0; i < sc.nvars; ++i)
     {

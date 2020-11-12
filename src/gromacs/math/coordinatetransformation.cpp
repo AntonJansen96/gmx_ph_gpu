@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2019, by the GROMACS development team, led by
+ * Copyright (c) 2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -44,10 +44,94 @@
 #include <vector>
 
 #include "gromacs/math/vec.h"
+#include "gromacs/mdspan/extensions.h"
+#include "gromacs/utility/arrayref.h"
+
+#include "matrix.h"
 
 namespace gmx
 {
 
+/********************************************************************
+ * ScaleCoordinates::Impl
+ */
+
+class ScaleCoordinates::Impl
+{
+public:
+    Impl(const RVec& scale);
+    void inverseIgnoringZeroScale(ArrayRef<RVec> coordinates) const;
+    void scale(ArrayRef<RVec> coordinates) const;
+
+private:
+    RVec scale_;
+};
+ScaleCoordinates::Impl::Impl(const RVec& scale) : scale_{ scale } {}
+void ScaleCoordinates::Impl::scale(ArrayRef<RVec> coordinates) const
+{
+    for (auto& coordinate : coordinates)
+    {
+        coordinate[XX] *= scale_[XX];
+        coordinate[YY] *= scale_[YY];
+        coordinate[ZZ] *= scale_[ZZ];
+    }
+}
+
+void ScaleCoordinates::Impl::inverseIgnoringZeroScale(ArrayRef<RVec> coordinates) const
+{
+    RVec inverseScale;
+    for (int dimension = XX; dimension <= ZZ; ++dimension)
+    {
+        inverseScale[dimension] = scale_[dimension] != 0 ? 1. / scale_[dimension] : 1.;
+    }
+
+    for (auto& coordinate : coordinates)
+    {
+        coordinate[XX] *= inverseScale[XX];
+        coordinate[YY] *= inverseScale[YY];
+        coordinate[ZZ] *= inverseScale[ZZ];
+    }
+}
+
+/********************************************************************
+ * ScaleCoordinates
+ */
+
+ScaleCoordinates::ScaleCoordinates(const RVec& scale) : impl_{ new Impl(scale) } {}
+
+void ScaleCoordinates::operator()(ArrayRef<RVec> coordinates) const
+{
+    impl_->scale(coordinates);
+}
+
+void ScaleCoordinates::operator()(RVec* coordinate) const
+{
+    impl_->scale({ coordinate, coordinate + 1 });
+}
+
+void ScaleCoordinates::inverseIgnoringZeroScale(ArrayRef<RVec> coordinates) const
+{
+    impl_->inverseIgnoringZeroScale(coordinates);
+}
+
+void ScaleCoordinates::inverseIgnoringZeroScale(RVec* coordinate) const
+{
+    impl_->inverseIgnoringZeroScale({ coordinate, coordinate + 1 });
+}
+
+ScaleCoordinates::~ScaleCoordinates() = default;
+
+ScaleCoordinates::ScaleCoordinates(const ScaleCoordinates& other) : impl_(new Impl(*other.impl_)) {}
+
+ScaleCoordinates& ScaleCoordinates::operator=(const ScaleCoordinates& other)
+{
+    *impl_ = *other.impl_;
+    return *this;
+}
+
+ScaleCoordinates::ScaleCoordinates(ScaleCoordinates&&) noexcept = default;
+
+ScaleCoordinates& ScaleCoordinates::operator=(ScaleCoordinates&&) noexcept = default;
 
 /********************************************************************
  * TranslateAndScale::Impl
@@ -55,29 +139,24 @@ namespace gmx
 
 class TranslateAndScale::Impl
 {
-    public:
-        Impl(const RVec &scale, const RVec &translation);
-        ~Impl();
-        void transform(ArrayRef<RVec> coordinates);
-
-        RVec scale_;
-        RVec translation_;
+public:
+    Impl(const RVec& scale, const RVec& translation);
+    void transform(ArrayRef<RVec> coordinates) const;
+    RVec scale_;
+    RVec translation_;
 };
 
-TranslateAndScale::Impl::Impl(const RVec &scale, const RVec &translation) :
-    scale_ {scale}, translation_ {
-    translation
-}
-{}
-
-TranslateAndScale::Impl::~Impl()
-{}
-
-void TranslateAndScale::Impl::transform(ArrayRef<RVec> coordinates)
+TranslateAndScale::Impl::Impl(const RVec& scale, const RVec& translation) :
+    scale_{ scale },
+    translation_{ translation }
 {
-    for (auto &coordinate : coordinates)
+}
+
+void TranslateAndScale::Impl::transform(ArrayRef<RVec> coordinates) const
+{
+    for (auto& coordinate : coordinates)
     {
-        coordinate     += translation_;
+        coordinate += translation_;
         coordinate[XX] *= scale_[XX];
         coordinate[YY] *= scale_[YY];
         coordinate[ZZ] *= scale_[ZZ];
@@ -89,18 +168,64 @@ void TranslateAndScale::Impl::transform(ArrayRef<RVec> coordinates)
  * TranslateAndScale
  */
 
-TranslateAndScale::TranslateAndScale(const RVec &scale, const RVec &translation) :
+TranslateAndScale::TranslateAndScale(const RVec& scale, const RVec& translation) :
     impl_(new Impl(scale, translation))
 {
 }
 
-void TranslateAndScale::operator()(ArrayRef<RVec> coordinates)
+void TranslateAndScale::operator()(ArrayRef<RVec> coordinates) const
 {
     impl_->transform(coordinates);
 }
 
-TranslateAndScale::~TranslateAndScale()
+void TranslateAndScale::operator()(RVec* coordinate) const
 {
+    impl_->transform({ coordinate, coordinate + 1 });
+}
+
+ScaleCoordinates TranslateAndScale::scaleOperationOnly() const
+{
+    return ScaleCoordinates{ impl_->scale_ };
+}
+
+TranslateAndScale::~TranslateAndScale() = default;
+
+TranslateAndScale::TranslateAndScale(const TranslateAndScale& other) : impl_(new Impl(*other.impl_))
+{
+}
+
+TranslateAndScale& TranslateAndScale::operator=(const TranslateAndScale& other)
+{
+    *impl_ = *other.impl_;
+    return *this;
+}
+
+TranslateAndScale::TranslateAndScale(TranslateAndScale&&) noexcept = default;
+
+TranslateAndScale& TranslateAndScale::operator=(TranslateAndScale&&) noexcept = default;
+
+/********************************************************************
+ * AffineTransformation
+ */
+
+AffineTransformation::AffineTransformation(Matrix3x3ConstSpan matrix, const RVec& translation) :
+    translation_{ translation }
+{
+    std::copy(begin(matrix), end(matrix), begin(matrix_));
+}
+
+void AffineTransformation::operator()(ArrayRef<RVec> vectors) const
+{
+    for (RVec& vector : vectors)
+    {
+        matrixVectorMultiply(matrix_.asConstView(), &vector);
+        vector += translation_;
+    }
+}
+
+void AffineTransformation::operator()(RVec* vector) const
+{
+    (*this)({ vector, vector + 1 });
 }
 
 } // namespace gmx

@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2018, by the GROMACS development team, led by
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -36,19 +36,21 @@
 /*! \libinternal \file
  * \brief Provides backported functions/classes from utility
  *
+ * \todo Remove when CUDA 11 is a requirement.
+ *
  * \author Roland Schulz <roland.schulz@intel.com>
  * \ingroup module_compat
  * \inlibraryapi
  */
- #ifndef GMX_COMPAT_UTILITY_H
- #define GMX_COMPAT_UTILITY_H
+#ifndef GMX_COMPAT_UTILITY_H
+#define GMX_COMPAT_UTILITY_H
 namespace gmx
 {
 namespace compat
 {
 //! Forms lvalue reference to const type of t
-template <class T>
-constexpr const T &as_const(T &t) noexcept
+template<class T>
+constexpr const T& as_const(T& t) noexcept
 {
     return t;
 }

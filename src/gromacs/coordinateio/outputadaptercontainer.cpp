@@ -32,8 +32,8 @@
  * To help us fund GROMACS development, we humbly ask that you cite
  * the research papers on the package. Check out http://www.gromacs.org.
  */
-/*!\file
- * \internal
+/*!\internal
+ * \file
  * \brief
  * Implements gmx::OutputAdapterContainer.
  *
@@ -52,9 +52,7 @@
 namespace gmx
 {
 
-void
-OutputAdapterContainer::addAdapter(OutputAdapterPointer adapter,
-                                   CoordinateFileFlags  type)
+void OutputAdapterContainer::addAdapter(OutputAdapterPointer adapter, CoordinateFileFlags type)
 {
     if (outputAdapters_[type] != nullptr)
     {
@@ -64,10 +62,9 @@ OutputAdapterContainer::addAdapter(OutputAdapterPointer adapter,
     outputAdapters_[type] = std::move(adapter);
 }
 
-bool
-OutputAdapterContainer::isEmpty() const
+bool OutputAdapterContainer::isEmpty() const
 {
     return std::none_of(outputAdapters_.begin(), outputAdapters_.end(),
-                        [](const auto &adapter){ return adapter != nullptr; });
+                        [](const auto& adapter) { return adapter != nullptr; });
 }
 } // namespace gmx

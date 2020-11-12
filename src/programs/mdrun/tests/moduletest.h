@@ -1,7 +1,8 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2013,2014,2015,2016,2017,2018, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017 by the GROMACS development team.
+ * Copyright (c) 2018,2019,2020, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -50,9 +51,12 @@
 #include <gtest/gtest.h>
 
 #include "gromacs/utility/classhelpers.h"
+#include "gromacs/utility/gmxmpi.h"
 
 #include "testutils/cmdlinetest.h"
 #include "testutils/testfilemanager.h"
+
+struct gmx_hw_info_t;
 
 namespace gmx
 {
@@ -60,12 +64,27 @@ namespace test
 {
 
 /*! \internal
+ * \brief How the mdp file of the SimulationRunner is defined
+ */
+enum class SimulationRunnerMdpSource
+{
+    //! The default behavior. Will result in an empty mdp file.
+    Undefined,
+    //! Mdp options are set via string using SimulationRunner::useStringAsMdpFile
+    String,
+    //! Mdp options are read from a file set in SimulationRunner::useTopGroAndMdpFromFepTestDatabase
+    File,
+    //! Signals the last enum entry
+    Count
+};
+
+/*! \internal
  * \brief Helper object for running grompp and mdrun in
  * integration tests of mdrun functionality
  *
- * Objects of this class are intended to be owned by
- * IntegrationTestFixture objects, and an IntegrationTestFixture
- * object might own more than one SimulationRunner.
+ * Objects of this class must be owned by objects descended from
+ * MdrunTestFixtureBase, which sets up necessary infrastructure for
+ * it. Such an object may own more than one SimulationRunner.
  *
  * The setup phase creates various temporary files for input and
  * output that are common for mdrun tests, using the file manager
@@ -86,104 +105,113 @@ namespace test
  */
 class SimulationRunner
 {
-    public:
-        //! Initializes a runner with given manager for temporary files.
-        explicit SimulationRunner(TestFileManager *fileManager);
+public:
+    //! Initializes a runner with given manager for temporary files.
+    explicit SimulationRunner(TestFileManager* fileManager);
 
-        //! Use an empty .mdp file as input to grompp
-        void useEmptyMdpFile();
-        //! Use a given string as input to grompp
-        void useStringAsMdpFile(const char *mdpString);
-        //! Use a given string as input to grompp
-        void useStringAsMdpFile(const std::string &mdpString);
-        //! Use a string as -n input to grompp
-        void useStringAsNdxFile(const char *ndxString);
-        //! Use a standard .top and .g96 file as input to grompp
-        void useTopG96AndNdxFromDatabase(const std::string &name);
-        //! Use a standard .top and .gro file as input to grompp
-        void useTopGroAndNdxFromDatabase(const std::string &name);
-        //! Use a standard .gro file as input to grompp
-        void useGroFromDatabase(const char *name);
-        //! Calls grompp (on rank 0, with a customized command line) to prepare for the mdrun test
-        int callGrompp(const CommandLine &callerRef);
-        //! Convenience wrapper for a default call to \c callGrompp
-        int callGrompp();
-        //! Calls grompp (on this rank, with a customized command line) to prepare for the mdrun test
-        int callGromppOnThisRank(const CommandLine &callerRef);
-        //! Convenience wrapper for a default call to \c callGromppOnThisRank
-        int callGromppOnThisRank();
-        //! Calls nmeig for testing
-        int callNmeig();
-        //! Calls mdrun for testing with a customized command line
-        int callMdrun(const CommandLine &callerRef);
-        /*! \brief Convenience wrapper for calling mdrun for testing
-         * with default command line */
-        int callMdrun();
+    //! Use an empty .mdp file as input to grompp
+    void useEmptyMdpFile();
+    //! Use a given string as input to grompp
+    void useStringAsMdpFile(const char* mdpString);
+    //! Use a given string as input to grompp
+    void useStringAsMdpFile(const std::string& mdpString);
+    //! Use a string as -n input to grompp
+    void useStringAsNdxFile(const char* ndxString);
+    //! Use a standard .top and .g96 file as input to grompp
+    void useTopG96AndNdxFromDatabase(const std::string& name);
+    //! Use a standard .top and .gro file as input to grompp
+    void useTopGroAndNdxFromDatabase(const std::string& name);
+    //! Use a standard .gro file as input to grompp
+    void useGroFromDatabase(const char* name);
+    //! Use .top, .gro, and .mdp from FEP test database
+    void useTopGroAndMdpFromFepTestDatabase(const std::string& name);
+    //! Calls grompp (on rank 0, with a customized command line) to prepare for the mdrun test
+    int callGrompp(const CommandLine& callerRef);
+    //! Convenience wrapper for a default call to \c callGrompp
+    int callGrompp();
+    //! Calls grompp (on this rank, with a customized command line) to prepare for the mdrun test
+    int callGromppOnThisRank(const CommandLine& callerRef);
+    //! Convenience wrapper for a default call to \c callGromppOnThisRank
+    int callGromppOnThisRank();
+    //! Calls nmeig for testing
+    int callNmeig();
+    //! Calls mdrun for testing with a customized command line
+    int callMdrun(const CommandLine& callerRef);
+    /*! \brief Convenience wrapper for calling mdrun for testing
+     * with default command line */
+    int callMdrun();
+    //! Calls convert-tpr on this rank to set a new number of steps in the tpr.
+    int changeTprNsteps(int nsteps);
 
-        //@{
-        /*! \name Names for frequently used grompp and mdrun output files
-         *
-         * These strings can be set to point to files present in the
-         * source tree, or to temporary files created for the test
-         * fixture. In the latter case,
-         * IntegrationTestFixture::fileManager_ should be used to fill
-         * these strings with paths to files, so that they are created
-         * in a temporary directory and (by default behaviour of
-         * TestFileManager) deleted when the test is complete.
-         */
-        std::string topFileName_;
-        std::string groFileName_;
-        std::string fullPrecisionTrajectoryFileName_;
-        std::string reducedPrecisionTrajectoryFileName_;
-        std::string groOutputFileName_;
-        std::string ndxFileName_;
-        std::string mdpOutputFileName_;
-        std::string tprFileName_;
-        std::string logFileName_;
-        std::string edrFileName_;
-        std::string mtxFileName_;
-        std::string cptFileName_;
-        std::string swapFileName_;
-        int         nsteps_;
-        //@}
-        //! What will be written into a temporary mdp file before the grompp call
-        std::string mdpInputContents_;
+    //@{
+    /*! \name Names for frequently used grompp and mdrun output files
+     *
+     * These strings can be set to point to files present in the
+     * source tree, or to temporary files created for the test
+     * fixture. In the latter case,
+     * IntegrationTestFixture::fileManager_ should be used to fill
+     * these strings with paths to files, so that they are created
+     * in a temporary directory and (by default behaviour of
+     * TestFileManager) deleted when the test is complete.
+     */
+    std::string topFileName_;
+    std::string groFileName_;
+    std::string mdpFileName_;
+    std::string fullPrecisionTrajectoryFileName_;
+    std::string reducedPrecisionTrajectoryFileName_;
+    std::string groOutputFileName_;
+    std::string ndxFileName_;
+    std::string mdpOutputFileName_;
+    std::string tprFileName_;
+    std::string logFileName_;
+    std::string edrFileName_;
+    std::string mtxFileName_;
+    std::string cptFileName_;
+    std::string swapFileName_;
+    std::string dhdlFileName_;
+    int         nsteps_;
+    //@}
+    //! How the mdp options are defined
+    SimulationRunnerMdpSource mdpSource_;
+    //! What will be written into a temporary mdp file before the grompp call
+    std::string mdpInputContents_;
 
-    private:
-        TestFileManager &fileManager_;
+private:
+    //! The file manager used to manage I/O
+    TestFileManager& fileManager_;
 
-        GMX_DISALLOW_COPY_AND_ASSIGN(SimulationRunner);
+    GMX_DISALLOW_COPY_AND_ASSIGN(SimulationRunner);
 };
 
 /*! \internal
  * \brief Declares test fixture base class for
  * integration tests of mdrun functionality
  *
- * Derived fixture classes (or individual test cases) that might have
- * specific requirements should assert that behaviour, rather than
- * hard-code the requirements. A test that (for example) can't run
- * with more than one thread should report that as a diagnostic, so the
- * person running the test (or designing the test harness) can get
- * feedback on what tests need what conditions without having to read
- * the code of lots of tests.
- *
- * Specifying the execution context (such as numbers of threads and
- * processors) is normally sensible to specify from the test harness
- * (i.e. when CMake/CTest/the user runs a test executable), because
- * only there is information about the hardware available. The default
- * values for such context provided in test fixtures for mdrun should
- * mirror the defaults for mdrun, but currently mdrun.c hard-codes
- * those in a gmx_hw_opt_t.
- *
- * Any method in this class may throw std::bad_alloc if out of memory.
+ * Heavyweight resources are set up here and shared
+ * across all tests in the test case fixture, e.g.
+ * the MPI communicator for the tests and the hardware
+ * detected that is available to it.
  *
  * \ingroup module_mdrun_integration_tests
  */
 class MdrunTestFixtureBase : public ::testing::Test
 {
-    public:
-        MdrunTestFixtureBase();
-        ~MdrunTestFixtureBase() override;
+public:
+    //! Per-test-case setup for lengthy processes that need run only once.
+    static void SetUpTestCase();
+    //! Per-test-case tear down
+    static void TearDownTestCase();
+
+    MdrunTestFixtureBase();
+    ~MdrunTestFixtureBase() override;
+
+    //! Communicator over which the test fixture works
+    static MPI_Comm communicator_;
+    /*! \brief Hardware information object
+     *
+     * Detected within \c communicator_ and available to re-use
+     * over all tests in the test case of this text fixture. */
+    static std::unique_ptr<gmx_hw_info_t> hwinfo_;
 };
 
 /*! \internal
@@ -194,24 +222,25 @@ class MdrunTestFixtureBase : public ::testing::Test
  *
  * \ingroup module_mdrun_integration_tests
  */
-class MdrunTestFixture : public ::testing::Test
+class MdrunTestFixture : public MdrunTestFixtureBase
 {
-    public:
-        MdrunTestFixture();
-        ~MdrunTestFixture() override;
+public:
+    MdrunTestFixture();
+    ~MdrunTestFixture() override;
 
-        //! Manages temporary files during the test.
-        TestFileManager  fileManager_;
-        //! Helper object to manage the preparation for and call of mdrun
-        SimulationRunner runner_;
+    //! Manages temporary files during the test.
+    TestFileManager fileManager_;
+    //! Helper object to manage the preparation for and call of mdrun
+    SimulationRunner runner_;
 };
 
 /*! \internal
  * \brief
  * Parameterized test fixture for mdrun integration tests
  */
-class ParameterizedMdrunTestFixture : public gmx::test::MdrunTestFixture,
-                                      public ::testing::WithParamInterface<const char *>
+class ParameterizedMdrunTestFixture :
+    public gmx::test::MdrunTestFixture,
+    public ::testing::WithParamInterface<const char*>
 {
 };
 
