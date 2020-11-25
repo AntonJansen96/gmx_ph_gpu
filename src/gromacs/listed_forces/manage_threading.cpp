@@ -241,8 +241,7 @@ static void divide_bondeds_over_threads(bonded_threading_t *bt,
              *
              * 1-4 interactions are modified by the constant-pH code
              */
-#warning "Replace this F_LJ14 conditional by a check on ir.lambda_dynamics"
-            if (!ftypeHasPerturbedEntries(idef, ftype) && ftype != F_LJ14)
+            if (!ftypeHasPerturbedEntries(idef, ftype))
             {
                 /* We will assign this interaction type to the GPU */
                 nrToAssignToCpuThreads = 0;

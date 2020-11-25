@@ -922,6 +922,14 @@ void pairs_gpu(const int nbonds,
         fvec  f;
         svmul_gpu(finvr, dr, f);
 
+        /* Calculate the 1-4 forces (to enable constant-pH bonded on GPU) */
+        float force_14_ai = scale_factor * xq[aj].w * rinv;
+        float force_14_aj = scale_factor * xq[ai].w * rinv;
+
+        /* Add the 1-4 forces (to enable constant-pH bonded on GPU) */
+        atomicAdd(&force[ai][3], force_14_ai);
+        atomicAdd(&force[aj][3], force_14_aj);
+
         /* Add the forces */
 #pragma unroll
         for (int m = 0; m < DIM; m++)

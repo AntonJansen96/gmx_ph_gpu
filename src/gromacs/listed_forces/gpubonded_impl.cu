@@ -112,10 +112,7 @@ static bool ftypeHasPerturbedEntries(const t_idef  &idef,
 
     const t_ilist &ilist = idef.il[ftype];
 
-#warning "Replace this F_LJ14 conditional by a check on ir.lambda_dynamics"
-#warning "Do not repeat the CPU/GPU decision logic here!"
-    return ((idef.ilsort != ilsortNO_FE && ilist.nr_nonperturbed != ilist.nr) ||
-            ftype == F_LJ14);
+    return (idef.ilsort != ilsortNO_FE && ilist.nr_nonperturbed != ilist.nr);
 }
 
 //! Converts \p src with atom indices in state order to \p dest in nbnxn order
